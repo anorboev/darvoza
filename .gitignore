@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Secrets / local config — NEVER commit
+.env
+*.env
+appsettings.*.local.json
+policy.local.yaml
+
+# Audit output (runtime artifact)
+audit/
+*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db

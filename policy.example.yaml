@@ -1,0 +1,35 @@
+# Darvoza policy — example (A01-T3 wires this up; shown now so the design is visible).
+# Deny-by-default: a tool not listed for a role is denied. Every decision is audited.
+
+callers:
+  # caller API key (sent as a header) -> role. Keys live in env/secret store, NOT here.
+  - keyEnv: DARVOZA_KEY_ANALYST     # value supplied via env var
+    role: analyst
+  - keyEnv: DARVOZA_KEY_ENGINEER
+    role: engineer
+
+roles:
+  analyst:
+    # read-only: can see and query, cannot mutate
+    allow:
+      - repo_list
+      - repo_get
+      - wit_list_work_items
+      - wit_get_work_item
+      - build_list
+    # everything else (create/update/delete) -> denied by default
+
+  engineer:
+    allow:
+      - repo_list
+      - repo_get
+      - wit_list_work_items
+      - wit_get_work_item
+      - wit_create_work_item     # the "allowed write" in the two-role demo
+      - wit_update_work_item
+      - build_list
+      - build_run
+
+# NOTE: tool names mirror the official azure-devops-mcp surface, which is in public
+# preview and can change. Deny-by-default means new upstream tools are invisible until
+# explicitly allowed — document this as intended behavior (REQ-001 edge case).
