@@ -1,0 +1,52 @@
+{
+  "_comment": "Patterns consumed by secret-scan.ps1. Edit this file to add or remove patterns globally for the toolkit. For project-specific additions (e.g. an in-house bearer-token shape), drop a sibling file `patterns-local.json` with the same shape - it will be merged in and is typically gitignored.",
+  "_pattern_authoring_tips": [
+    "Patterns are .NET regex strings. Use (?i) at the start for case-insensitive.",
+    "Test against synthetic strings before deploying - false positives block real edits.",
+    "Block patterns trigger exit 2 (hard refusal). Warn patterns log to stderr and allow."
+  ],
+  "block": [
+    {
+      "name": "AWS access key",
+      "pattern": "AKIA[0-9A-Z]{16}"
+    },
+    {
+      "name": "JWT (eyJ...)",
+      "pattern": "eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]+"
+    },
+    {
+      "name": "Generic bearer / API-key token",
+      "pattern": "(?i)(bearer|api[_-]?key|access[_-]?token|auth[_-]?token|secret[_-]?key)\\s*[:=]\\s*[\"']?[A-Fa-f0-9]{32,}"
+    },
+    {
+      "name": "password literal",
+      "pattern": "(?i)password\\s*=\\s*['\"][^'\"]{6,}['\"]"
+    },
+    {
+      "name": "secret literal",
+      "pattern": "(?i)secret\\s*=\\s*['\"][^'\"]{6,}['\"]"
+    },
+    {
+      "name": ".aws/credentials path",
+      "pattern": "\\.aws[/\\\\]credentials"
+    },
+    {
+      "name": ".azure path",
+      "pattern": "\\.azure[/\\\\]"
+    },
+    {
+      "name": ".ssh private key path",
+      "pattern": "\\.ssh[/\\\\](id_rsa|id_ed25519|id_ecdsa|id_dsa)"
+    },
+    {
+      "name": "PEM private key body",
+      "pattern": "-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----"
+    }
+  ],
+  "warn": [
+    {
+      "name": "Generic publishable / anon key",
+      "pattern": "(?i)(publishable|anon)[_-]?key\\s*[:=]"
+    }
+  ]
+}
