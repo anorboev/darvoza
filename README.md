@@ -30,8 +30,10 @@ any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio─�
                                      └ append-only JSONL audit (every call, allowed AND denied)
 ```
 
-- **Front leg:** streamable-HTTP MCP server (`ModelContextProtocol.AspNetCore` 1.4.0).
-- **Upstream leg:** MCP client over stdio to `microsoft/azure-devops-mcp` (PAT / `az login`).
+- **Front leg:** streamable-HTTP MCP server (`ModelContextProtocol.AspNetCore` 1.4.0). Endpoint is
+  the root path `/` (`MapMcp()` default; Streamable HTTP spec 2025-11-25).
+- **Upstream leg:** MCP client over stdio to `microsoft/azure-devops-mcp` — pinned npm
+  **`@azure-devops/mcp@2.7.0`**, launched `npx -y @azure-devops/mcp <org> --authentication pat`.
 - **Policy:** declarative `policy.yaml` — roles → tool allowlists, deny-by-default, caller→role via per-caller API key.
 - **Audit:** structured JSONL — caller, role, tool, arg summary/hash, allow/deny, upstream status, latency, UTC timestamp.
 
@@ -39,12 +41,22 @@ any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio─�
 
 > Requires .NET 10 SDK (LTS) + Node (for the upstream `npx` server) + an Azure DevOps org with a least-privilege PAT.
 
+Secrets load from a gitignored `.env` (walked up from the working dir) or from real env vars.
+
 ```bash
 export ADO_ORG="your-org"
-export AZURE_DEVOPS_EXT_PAT="<least-privilege PAT>"   # never commit
-dotnet run --project src/Darvoza.Gateway
-# then point any MCP client (Claude Code/Desktop, VS Code Copilot, …) at the gateway's streamable-HTTP URL
+export AZURE_DEVOPS_EXT_PAT="<least-privilege raw PAT>"   # never commit
+dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 by default
+# then point any MCP client (Claude Code/Desktop, VS Code Copilot, …) at  http://localhost:5000/
 ```
+
+> **PAT handling:** the upstream `@azure-devops/mcp` `pat` mode reads `PERSONAL_ACCESS_TOKEN`
+> whose value must be **base64 of `email:pat`**. Darvoza accepts either: a raw PAT in
+> `AZURE_DEVOPS_EXT_PAT` (it base64-encodes it in-process for the upstream), or a pre-encoded
+> `PERSONAL_ACCESS_TOKEN` (passed through). The token is only ever held in-process, never logged.
+
+> **Pinned versions:** .NET `net10.0` · NuGet `ModelContextProtocol` + `ModelContextProtocol.AspNetCore`
+> `1.4.0` · npm `@azure-devops/mcp@2.7.0`.
 
 ## Scope (v1 / MVP)
 
