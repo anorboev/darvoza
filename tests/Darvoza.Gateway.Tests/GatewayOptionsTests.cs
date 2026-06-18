@@ -29,4 +29,22 @@ public class GatewayOptionsTests
     {
         Assert.True(GatewayOptions.IsValidAdoOrg(org));
     }
+
+    // A01-T3 — policy path resolution honors the gitignored local override.
+    // (These cases assume DARVOZA_POLICY_PATH is unset, which it is in the test environment.)
+    [Fact]
+    public void ResolvePolicyPath_prefers_the_local_override_when_present()
+    {
+        var path = GatewayOptions.ResolvePolicyPath("/root", fileExists: _ => true);
+
+        Assert.Equal(Path.Combine("/root", GatewayOptions.LocalPolicyFileName), path);
+    }
+
+    [Fact]
+    public void ResolvePolicyPath_falls_back_to_the_committed_default_when_no_local_override()
+    {
+        var path = GatewayOptions.ResolvePolicyPath("/root", fileExists: _ => false);
+
+        Assert.Equal(Path.Combine("/root", GatewayOptions.DefaultPolicyFileName), path);
+    }
 }

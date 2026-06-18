@@ -9,6 +9,7 @@ obj/
 *.env
 appsettings.*.local.json
 policy.local.yaml
+policy.yaml
 
 # Audit output (runtime artifact)
 audit/
