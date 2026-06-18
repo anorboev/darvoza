@@ -38,6 +38,11 @@ if (!GatewayOptions.IsValidAdoOrg(adoOrg))
         "organization name (alphanumeric and interior hyphens only, e.g. \"darvoza-demo\").");
 }
 
+// T3: load + validate the policy BEFORE building the host. Any failure (missing, unparseable, or
+// half-configured policy) throws here, so the host NEVER STARTS open — deny-by-default requires an
+// explicit policy.yaml (mirrors the fail-fast upstream lifecycle, ADR-0002 / decision #6).
+var policy = PolicyLoader.Load(GatewayOptions.ResolvePolicyPath(Directory.GetCurrentDirectory()));
+
 // --- Upstream transport (PAT resolved once here; never stored in an app-lifetime object or logged) -
 // T2c: the @azure-devops/mcp@2.7.0 "pat" mode reads env PERSONAL_ACCESS_TOKEN = base64("email:pat").
 // Accept a pre-encoded PERSONAL_ACCESS_TOKEN, or a raw PAT in AZURE_DEVOPS_EXT_PAT we encode in-process.
@@ -49,13 +54,24 @@ var builder = WebApplication.CreateBuilder(args);
 // --- DI: upstream owned by the container so it is disposed on shutdown (T2b — kills the npx child) -
 builder.Services.AddSingleton(new GatewayOptions { AdoOrg = adoOrg! });
 builder.Services.AddSingleton(_ => new McpUpstreamToolClient(upstreamTransport));
-// T3/T4 will register policy/audit decorators as the IUpstreamToolClient, wrapping this concrete
-// client. Keep BOTH registrations: UpstreamConnectionInitializer resolves the concrete type for its
-// lifecycle (ConnectAsync), while handlers resolve the (decorated) interface.
-builder.Services.AddSingleton<IUpstreamToolClient>(sp => sp.GetRequiredService<McpUpstreamToolClient>());
-// PassthroughToolHandlers is a singleton here because IUpstreamToolClient is a singleton in T2. If
-// T3/T4 introduce a per-request-scoped decorator, register the decorators as singletons too, or move
-// this to AddScoped (the handlers already resolve it per-call via ctx.Services).
+
+// T3 policy seam. The caller key arrives as the X-Darvoza-Key header; IHttpContextAccessor (a singleton
+// over AsyncLocal) carries it across the per-request scope boundary so the singleton decorator can read
+// it without a captive scoped dependency.
+builder.Services.AddSingleton(policy);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ICallerKeyProvider, HttpHeaderCallerKeyProvider>();
+
+// T3: the policy decorator is the OUTERMOST IUpstreamToolClient, wrapping the concrete client (ADR-0002).
+// It is a singleton to sit cleanly under the singleton PassthroughToolHandlers (G-09 #1 — no captive
+// scoped dependency). T4 (audit) will wrap this in turn. KEEP the concrete McpUpstreamToolClient
+// registration above: UpstreamConnectionInitializer resolves the concrete type for its connect lifecycle,
+// while handlers resolve the (now policy-decorated) interface (G-09 #2).
+builder.Services.AddSingleton<IUpstreamToolClient>(sp =>
+    new PolicyEnforcingToolClient(
+        sp.GetRequiredService<McpUpstreamToolClient>(),
+        sp.GetRequiredService<Policy>(),
+        sp.GetRequiredService<ICallerKeyProvider>()));
 builder.Services.AddSingleton<PassthroughToolHandlers>();
 builder.Services.AddHostedService<UpstreamConnectionInitializer>();
 

@@ -49,8 +49,12 @@ the project tree. Values already set in the environment take precedence over the
 ```bash
 export ADO_ORG="your-org"
 export AZURE_DEVOPS_EXT_PAT="<least-privilege raw PAT>"   # never commit
+cp policy.example.yaml policy.yaml                        # required — the gateway won't start without a policy
+export DARVOZA_KEY_ANALYST="<analyst caller key>"         # the X-Darvoza-Key value bound to the analyst role
+export DARVOZA_KEY_ENGINEER="<engineer caller key>"       # …and the engineer role (keys live in env, not the file)
 dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 by default
 # then point any MCP client (Claude Code/Desktop, VS Code Copilot, …) at  http://localhost:5000/
+# …sending its per-caller key as the  X-Darvoza-Key  request header
 ```
 
 > **PAT handling:** the upstream `@azure-devops/mcp` `pat` mode reads `PERSONAL_ACCESS_TOKEN`
@@ -60,6 +64,26 @@ dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:50
 
 > **Pinned versions:** .NET `net10.0` · NuGet `ModelContextProtocol` + `ModelContextProtocol.AspNetCore`
 > `1.4.0` · npm `@azure-devops/mcp@2.7.0`.
+
+## Policy (`policy.yaml`)
+
+Darvoza enforces a declarative policy at the gateway, **deny-by-default**: a tool not explicitly
+allowed for the caller's role is denied *before it reaches upstream*, and `tools/list` returns only the
+caller-role's allowed tools. A caller identifies itself with a per-caller secret sent as the
+`X-Darvoza-Key` request header; an unknown or missing key is denied. The file maps `roles → allow`
+(exact tool-name allowlists) and `callers → role`, where each caller's key is supplied via a named
+environment variable (`keyEnv`) — never written in the file. The gateway loads `policy.yaml` (or a
+gitignored `policy.local.yaml` override, or `$DARVOZA_POLICY_PATH`) at startup and **fails to start** if
+it is missing, unparseable, or half-configured — it never starts open. See `policy.example.yaml`.
+
+```yaml
+callers:
+  - keyEnv: DARVOZA_KEY_ANALYST          # env var holding this caller's secret key (the X-Darvoza-Key value)
+    role: analyst
+roles:
+  analyst:
+    allow: [repo_list, wit_get_work_item]   # every other tool is denied by default
+```
 
 ## Scope (v1 / MVP)
 

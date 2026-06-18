@@ -17,8 +17,34 @@ public sealed partial class GatewayOptions
     /// <summary>Environment variable carrying the Azure DevOps organization name.</summary>
     public const string AdoOrgEnvVar = "ADO_ORG";
 
+    /// <summary>Optional environment variable overriding the policy file path (A01-T3).</summary>
+    public const string PolicyPathEnvVar = "DARVOZA_POLICY_PATH";
+
+    /// <summary>Default committed policy file name (no secrets — keyEnv names env vars, not key values).</summary>
+    public const string DefaultPolicyFileName = "policy.yaml";
+
+    /// <summary>Gitignored local-override policy file; takes precedence over the committed default.</summary>
+    public const string LocalPolicyFileName = "policy.local.yaml";
+
     /// <summary>The validated Azure DevOps organization name (positional arg to the upstream server).</summary>
     public required string AdoOrg { get; init; }
+
+    /// <summary>
+    /// Resolves the policy file path. Precedence: <see cref="PolicyPathEnvVar"/> if set, else a local
+    /// <see cref="LocalPolicyFileName"/> override under <paramref name="contentRoot"/> when present
+    /// (gitignored), else the committed <see cref="DefaultPolicyFileName"/>.
+    /// </summary>
+    /// <param name="fileExists">Existence probe (injectable for tests); defaults to <see cref="File.Exists"/>.</param>
+    public static string ResolvePolicyPath(string contentRoot, Func<string, bool>? fileExists = null)
+    {
+        var configured = Environment.GetEnvironmentVariable(PolicyPathEnvVar);
+        if (!string.IsNullOrWhiteSpace(configured))
+            return configured;
+
+        fileExists ??= File.Exists;
+        var local = Path.Combine(contentRoot, LocalPolicyFileName);
+        return fileExists(local) ? local : Path.Combine(contentRoot, DefaultPolicyFileName);
+    }
 
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
     // leading/trailing hyphen, no whitespace/slashes/scheme. Bounds length to a sane 64 chars.
