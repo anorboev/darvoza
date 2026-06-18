@@ -1,4 +1,4 @@
-# Scope: PROJECT (afp-pos) — SessionStart
+# Scope: PROJECT (darvoza) — SessionStart
 # Surfaces the most recent handoff doc (if any) so a new session inherits context.
 # Also fires the cc-progress worker as a safety net — catches PR merges done via
 # the GitHub web UI (or by another agent on this machine) that the post-merge
