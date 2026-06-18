@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Darvoza.Gateway/Darvoza.Gateway.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Darvoza.Gateway.Tests/Darvoza.Gateway.Tests.csproj" />
+  </Folder>
 </Solution>
