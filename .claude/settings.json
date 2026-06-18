@@ -3,6 +3,12 @@
   "env": {
     "CC_PROGRESS_PLANNING_DOCS": "C:/Projects/consulting-pivot/Consulting Pivot — HQ/artifacts/_dev/darvoza"
   },
+  "permissions": {
+    "allow": [
+      "Bash(pwsh -NoProfile -File .claude/hooks/update-cc-progress.ps1)",
+      "Bash(pwsh -NoProfile -File .claude/hooks/update-cc-progress.ps1:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
