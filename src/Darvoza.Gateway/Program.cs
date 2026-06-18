@@ -1,15 +1,17 @@
 // Darvoza — MCP governance gateway for Azure DevOps (.NET), provider-agnostic (demo led by Claude).
 // =================================================================================================
-// A01-T2 GATEWAY SKELETON: the structured, maintainable foundation that A01-T3 (policy) and A01-T4
-// (audit) bolt onto. This file is the COMPOSITION ROOT only — config, DI registration, lifecycle,
-// and the MCP server wiring. The behavior is still TRANSPARENT PASS-THROUGH (no policy, no audit, no
-// deny-by-default); those slot in as IUpstreamToolClient decorators at the seam (see that interface).
+// COMPOSITION ROOT (A01-T2 skeleton + A01-T3 policy): config, DI registration, lifecycle, and MCP
+// server wiring. As of A01-T3 the gateway ENFORCES per-role policy (deny-by-default) via an
+// IUpstreamToolClient decorator at the seam — it is no longer a transparent pass-through. A01-T4 (audit)
+// will add a second decorator around the same seam. Enforcement lives in the decorators, not here.
 //
 // Shape (see the typed components for detail):
-//   - Configuration/  GatewayOptions (ADO_ORG validation, T2c) + DotEnvLoader (bounded .env, T2a)
+//   - Configuration/  GatewayOptions (ADO_ORG validation, T2c; policy path, T3) + DotEnvLoader (bounded
+//                      .env, T2a) + Policy / PolicyDocument / PolicyLoader (declarative policy.yaml, T3)
 //   - Upstream/        IUpstreamToolClient (seam) + McpUpstreamToolClient (owns/disposes the upstream
 //                      session, T2b) + UpstreamConnectionInitializer (fail-fast connect at startup)
-//                      + PassthroughToolHandlers (no-op pass-through stage)
+//                      + PolicyEnforcingToolClient (deny-by-default decorator, T3) + ICallerKeyProvider
+//                      / HttpHeaderCallerKeyProvider (X-Darvoza-Key, T3) + PassthroughToolHandlers
 //
 // Resolved SDK facts (Decision #1/#2/#3, verified against MCP C# SDK 1.4.0):
 //   - Upstream client created with McpClient.CreateAsync(transport) (McpClientFactory removed in 1.4.0).
