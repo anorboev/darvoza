@@ -33,7 +33,10 @@ public class PolicyEnforcingToolClientTests
             ],
             CallResult = new CallToolResult { Content = [new TextContentBlock { Text = "upstream-ok" }] },
         };
-        var sut = new PolicyEnforcingToolClient(inner, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey });
+        // No audit decorator in these T3-focused tests: an empty decision context (Current == null) makes
+        // the decision-publish a no-op, so enforcement behavior is unchanged.
+        var sut = new PolicyEnforcingToolClient(
+            inner, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey }, new AsyncLocalCallDecisionContext());
         return (sut, inner);
     }
 

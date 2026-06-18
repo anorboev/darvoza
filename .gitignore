@@ -11,8 +11,9 @@ appsettings.*.local.json
 policy.local.yaml
 policy.yaml
 
-# Audit output (runtime artifact)
-audit/
+# Audit output (runtime artifact). Anchored to the repo root so it does NOT also match the
+# src/Darvoza.Gateway/Audit/ source directory under core.ignorecase=true (Windows/macOS) — G-16.
+/audit/
 *.jsonl
 
 # Cowork↔CC loop config is version-controlled for this repo.

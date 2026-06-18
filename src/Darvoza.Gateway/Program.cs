@@ -1,17 +1,22 @@
 // Darvoza — MCP governance gateway for Azure DevOps (.NET), provider-agnostic (demo led by Claude).
 // =================================================================================================
-// COMPOSITION ROOT (A01-T2 skeleton + A01-T3 policy): config, DI registration, lifecycle, and MCP
-// server wiring. As of A01-T3 the gateway ENFORCES per-role policy (deny-by-default) via an
-// IUpstreamToolClient decorator at the seam — it is no longer a transparent pass-through. A01-T4 (audit)
-// will add a second decorator around the same seam. Enforcement lives in the decorators, not here.
+// COMPOSITION ROOT (A01-T2 skeleton + A01-T3 policy + A01-T4 audit): config, DI registration, lifecycle,
+// and MCP server wiring. As of A01-T3 the gateway ENFORCES per-role policy (deny-by-default) via an
+// IUpstreamToolClient decorator at the seam — it is no longer a transparent pass-through. A01-T4 adds the
+// outermost decorator: a 100%-coverage JSONL audit trail. Enforcement and audit live in the decorators,
+// not here.
 //
 // Shape (see the typed components for detail):
-//   - Configuration/  GatewayOptions (ADO_ORG validation, T2c; policy path, T3) + DotEnvLoader (bounded
-//                      .env, T2a) + Policy / PolicyDocument / PolicyLoader (declarative policy.yaml, T3)
+//   - Configuration/  GatewayOptions (ADO_ORG validation, T2c; policy path, T3; audit path, T4) +
+//                      DotEnvLoader (bounded .env, T2a) + Policy / PolicyDocument / PolicyLoader
+//                      (declarative policy.yaml, T3)
 //   - Upstream/        IUpstreamToolClient (seam) + McpUpstreamToolClient (owns/disposes the upstream
 //                      session, T2b) + UpstreamConnectionInitializer (fail-fast connect at startup)
 //                      + PolicyEnforcingToolClient (deny-by-default decorator, T3) + ICallerKeyProvider
 //                      / HttpHeaderCallerKeyProvider (X-Darvoza-Key, T3) + PassthroughToolHandlers
+//                      + AuditingToolClient (outermost audit decorator, T4) + ICallDecisionContext
+//   - Audit/           AuditRecord (JSONL schema + redacted arg summary) + IAuditSink / JsonlAuditSink
+//                      (append-only writer) + CallerFingerprint (non-reversible caller id, T4)
 //
 // Resolved SDK facts (Decision #1/#2/#3, verified against MCP C# SDK 1.4.0):
 //   - Upstream client created with McpClient.CreateAsync(transport) (McpClientFactory removed in 1.4.0).
@@ -20,6 +25,7 @@
 //   - app.MapMcp() maps the Streamable HTTP endpoint at the ROOT path "/" (Decision #2 — unchanged).
 //   - Upstream pinned @azure-devops/mcp@2.7.0 local stdio, PAT = base64("email:pat") (Decision #3).
 
+using Darvoza.Gateway.Audit;
 using Darvoza.Gateway.Configuration;
 using Darvoza.Gateway.Upstream;
 using ModelContextProtocol.Client;
@@ -64,16 +70,31 @@ builder.Services.AddSingleton(policy);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ICallerKeyProvider, HttpHeaderCallerKeyProvider>();
 
-// T3: the policy decorator is the OUTERMOST IUpstreamToolClient, wrapping the concrete client (ADR-0002).
-// It is a singleton to sit cleanly under the singleton PassthroughToolHandlers (G-09 #1 — no captive
-// scoped dependency). T4 (audit) will wrap this in turn. KEEP the concrete McpUpstreamToolClient
-// registration above: UpstreamConnectionInitializer resolves the concrete type for its connect lifecycle,
-// while handlers resolve the (now policy-decorated) interface (G-09 #2).
+// T4 audit seam. The decision context (AsyncLocal-backed, singleton-safe) carries each call's policy
+// decision from the inner T3 decorator up to the outer audit decorator. TimeProvider gives testable UTC
+// timestamps + latency. The JSONL sink is a container-owned singleton (IAsyncDisposable) so the file is
+// flushed/closed on shutdown — its path is env-configurable (DARVOZA_AUDIT_PATH), defaulting to the
+// gitignored audit/ dir (ADR-0003 / decision #6 lifecycle posture).
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ICallDecisionContext, AsyncLocalCallDecisionContext>();
+builder.Services.AddSingleton<IAuditSink>(_ =>
+    new JsonlAuditSink(GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory())));
+
+// The decorator chain (ADR-0002): audit (T4, OUTERMOST) wraps policy (T3) wraps the concrete client.
+// Both decorators are singletons to sit cleanly under the singleton PassthroughToolHandlers (G-09 #1 —
+// no captive scoped dependency). KEEP the concrete McpUpstreamToolClient registration above:
+// UpstreamConnectionInitializer resolves the concrete type for its connect lifecycle, while handlers
+// resolve the (now audit-then-policy-decorated) interface (G-09 #2).
 builder.Services.AddSingleton<IUpstreamToolClient>(sp =>
-    new PolicyEnforcingToolClient(
-        sp.GetRequiredService<McpUpstreamToolClient>(),
-        sp.GetRequiredService<Policy>(),
-        sp.GetRequiredService<ICallerKeyProvider>()));
+    new AuditingToolClient(
+        new PolicyEnforcingToolClient(
+            sp.GetRequiredService<McpUpstreamToolClient>(),
+            sp.GetRequiredService<Policy>(),
+            sp.GetRequiredService<ICallerKeyProvider>(),
+            sp.GetRequiredService<ICallDecisionContext>()),
+        sp.GetRequiredService<IAuditSink>(),
+        sp.GetRequiredService<ICallDecisionContext>(),
+        sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<PassthroughToolHandlers>();
 builder.Services.AddHostedService<UpstreamConnectionInitializer>();
 

@@ -21,11 +21,16 @@ public sealed class FakeUpstreamToolClient : IUpstreamToolClient, IAsyncDisposab
     /// <summary>Set once <see cref="DisposeAsync"/> runs.</summary>
     public bool Disposed { get; private set; }
 
+    /// <summary>Optional hook run inside <see cref="CallToolAsync"/> before returning — e.g. to advance a
+    /// test clock so an outer decorator observes non-zero latency.</summary>
+    public Action? BeforeReturn { get; set; }
+
     public Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken ct) => Task.FromResult(Tools);
 
     public ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
     {
         LastCallParams = callParams;
+        BeforeReturn?.Invoke();
         return ValueTask.FromResult(CallResult);
     }
 

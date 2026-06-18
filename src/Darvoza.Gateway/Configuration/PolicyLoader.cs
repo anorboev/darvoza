@@ -8,7 +8,7 @@ namespace Darvoza.Gateway.Configuration;
 /// Loads and validates <c>policy.yaml</c> into an immutable <see cref="Policy"/> (A01-T3). Every failure
 /// mode throws — the composition root calls this at startup so an invalid, missing, or half-configured
 /// policy <b>fails host startup</b> rather than letting the gateway run open ("never start open",
-/// mirroring the fail-fast upstream lifecycle, ADR-0002 / decision #6).
+/// mirroring the fail-fast upstream lifecycle — ADR-0002, <c>docs/adr/ADR-0002-tool-pipeline-decorator-seam.md</c>).
 /// </summary>
 public static class PolicyLoader
 {

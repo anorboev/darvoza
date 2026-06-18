@@ -26,6 +26,15 @@ public sealed partial class GatewayOptions
     /// <summary>Gitignored local-override policy file; takes precedence over the committed default.</summary>
     public const string LocalPolicyFileName = "policy.local.yaml";
 
+    /// <summary>Optional environment variable overriding the audit-trail file path (A01-T4).</summary>
+    public const string AuditPathEnvVar = "DARVOZA_AUDIT_PATH";
+
+    /// <summary>Default (gitignored) directory holding the audit trail.</summary>
+    public const string DefaultAuditDirName = "audit";
+
+    /// <summary>Default audit-trail file name within <see cref="DefaultAuditDirName"/>.</summary>
+    public const string DefaultAuditFileName = "darvoza-audit.jsonl";
+
     /// <summary>The validated Azure DevOps organization name (positional arg to the upstream server).</summary>
     public required string AdoOrg { get; init; }
 
@@ -44,6 +53,21 @@ public sealed partial class GatewayOptions
         fileExists ??= File.Exists;
         var local = Path.Combine(contentRoot, LocalPolicyFileName);
         return fileExists(local) ? local : Path.Combine(contentRoot, DefaultPolicyFileName);
+    }
+
+    /// <summary>
+    /// Resolves the audit-trail file path. Precedence: <see cref="AuditPathEnvVar"/> if set, else the
+    /// committed-gitignored default <c>&lt;contentRoot&gt;/<see cref="DefaultAuditDirName"/>/<see cref="DefaultAuditFileName"/></c>.
+    /// </summary>
+    /// <param name="getEnv">Environment reader (injectable for tests); defaults to the process environment.</param>
+    public static string ResolveAuditPath(string contentRoot, Func<string, string?>? getEnv = null)
+    {
+        getEnv ??= Environment.GetEnvironmentVariable;
+        var configured = getEnv(AuditPathEnvVar);
+        if (!string.IsNullOrWhiteSpace(configured))
+            return configured;
+
+        return Path.Combine(contentRoot, DefaultAuditDirName, DefaultAuditFileName);
     }
 
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
