@@ -9,6 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Expose internal test seams (e.g. the McpUpstreamToolClient connection-injecting ctor) to the
+         unit-test project only. The McpClient itself cannot be faked (large abstract surface), so the
+         owned connection is injected as an IAsyncDisposable collaborator to unit-test disposal (T2b). -->
+    <InternalsVisibleTo Include="Darvoza.Gateway.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Official C# MCP SDK (maintained with Microsoft). Verified stable 1.4.0 on 2026-06-16.
          Front leg = streamable-HTTP MCP server; upstream leg = MCP client over stdio.
          Pin exact versions; SDK surface still moves between minors. -->
