@@ -35,21 +35,30 @@ function Write-Log($msg) { [Console]::Error.WriteLine("[$here] $msg") }
 
 # --- Resolve paths (with traversal-safety guards) ----------------------------
 
+# This hook lives at <projectDir>/.claude/hooks/update-cc-progress.ps1, so its own
+# location is the ground truth for WHICH repo it serves. We prefer
+# $env:CLAUDE_PROJECT_DIR (the harness sets it per-invocation and it stays correct
+# across worktrees) — but only when this script actually lives under it. A stale
+# value leaked from a shell profile (e.g. a sibling project's afp-pos path) would
+# otherwise send us to the wrong repo; in that case fall back to the script root.
+$sep = [IO.Path]::DirectorySeparatorChar
+$scriptRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..$sep..")).Path
+
 $projectDir = $env:CLAUDE_PROJECT_DIR
-if (-not $projectDir) {
-  Write-Log "CLAUDE_PROJECT_DIR not set; trying current directory"
-  $projectDir = (Get-Location).Path
+if ($projectDir) {
+  try { $projectDir = (Resolve-Path -LiteralPath $projectDir -ErrorAction Stop).Path }
+  catch { $projectDir = $null }
+}
+if (-not $projectDir -or
+    -not $PSScriptRoot.StartsWith(($projectDir + $sep), [StringComparison]::OrdinalIgnoreCase)) {
+  if ($projectDir) {
+    Write-Log "CLAUDE_PROJECT_DIR ('$projectDir') does not contain this hook; using script-anchored root ('$scriptRoot')"
+  }
+  $projectDir = $scriptRoot
 }
 
-# Normalize and assert projectDir actually looks like a repo root.
-try {
-  $projectDir = (Resolve-Path -LiteralPath $projectDir -ErrorAction Stop).Path
-} catch {
-  Write-Log "CLAUDE_PROJECT_DIR ('$projectDir') does not resolve; skipping"
-  exit 0
-}
 if (-not (Test-Path (Join-Path $projectDir ".git"))) {
-  Write-Log "CLAUDE_PROJECT_DIR ('$projectDir') is not a git repo root; refusing to operate"
+  Write-Log "resolved project dir ('$projectDir') is not a git repo root; refusing to operate"
   exit 0
 }
 
