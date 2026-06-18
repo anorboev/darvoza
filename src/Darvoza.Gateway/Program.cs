@@ -1,97 +1,76 @@
 // Darvoza — MCP governance gateway for Azure DevOps (.NET), provider-agnostic (demo led by Claude).
 // =================================================================================================
-// A01-T1 SPIKE: prove SDK-to-SDK passthrough ONLY. An MCP client connects to THIS gateway over
-// streamable-HTTP, can list-tools and call-tool, and every call is transparently forwarded to the
-// OFFICIAL Azure DevOps MCP server (stdio) and the result returned unmodified.
-// NO policy, NO caller auth, NO audit, NO deny-by-default, NO YAML — those are A01-T2/T3/T4.
+// A01-T2 GATEWAY SKELETON: the structured, maintainable foundation that A01-T3 (policy) and A01-T4
+// (audit) bolt onto. This file is the COMPOSITION ROOT only — config, DI registration, lifecycle,
+// and the MCP server wiring. The behavior is still TRANSPARENT PASS-THROUGH (no policy, no audit, no
+// deny-by-default); those slot in as IUpstreamToolClient decorators at the seam (see that interface).
 //
-// RESOLVED UNKNOWNS (verified against installed packages + official docs — for T2 to build on):
+// Shape (see the typed components for detail):
+//   - Configuration/  GatewayOptions (ADO_ORG validation, T2c) + DotEnvLoader (bounded .env, T2a)
+//   - Upstream/        IUpstreamToolClient (seam) + McpUpstreamToolClient (owns/disposes the upstream
+//                      session, T2b) + UpstreamConnectionInitializer (fail-fast connect at startup)
+//                      + PassthroughToolHandlers (no-op pass-through stage)
 //
-//  1. MCP C# SDK 1.4.0 API (confirmed from the NuGet XML docs):
-//       - McpClientFactory was REMOVED in 1.4.0 → create the upstream client with
-//         McpClient.CreateAsync(transport) (namespace ModelContextProtocol.Client).
-//       - Server handlers take the McpRequestHandler<TParams,TResult> delegate
-//         (RequestContext<TParams> ctx, CancellationToken ct) => ValueTask<TResult>:
-//           WithListToolsHandler(McpRequestHandler<ListToolsRequestParams, ListToolsResult>)
-//           WithCallToolHandler (McpRequestHandler<CallToolRequestParams,  CallToolResult>)
-//       - Upstream client: ListToolsAsync(cancellationToken:) returns IList<McpClientTool>;
-//         each McpClientTool exposes .ProtocolTool (a Protocol.Tool).
-//       - Cleanest call passthrough: CallToolAsync(CallToolRequestParams, ct) overload — forwards
-//         the incoming params object verbatim (no Arguments dictionary conversion).
-//       - StdioClientTransportOptions.InheritEnvironmentVariables defaults true → the spawned npx
-//         child inherits this process's env, so PERSONAL_ACCESS_TOKEN flows through automatically.
-//
-//  2. Gateway endpoint path: app.MapMcp() (default pattern) maps the Streamable HTTP endpoint at
-//     the ROOT path "/" (spec 2025-11-25). Clients connect to http://localhost:<port>/ .
-//
-//  3. Upstream launch (PINNED): npm @azure-devops/mcp@2.7.0, launched as
-//       npx -y @azure-devops/mcp <ADO_ORG> --authentication pat
-//     org is a POSITIONAL arg. PAT carried in env var PERSONAL_ACCESS_TOKEN, whose value is the
-//     base64 encoding of "<email>:<pat>" (email = any non-empty string; only the token is used).
+// Resolved SDK facts (Decision #1/#2/#3, verified against MCP C# SDK 1.4.0):
+//   - Upstream client created with McpClient.CreateAsync(transport) (McpClientFactory removed in 1.4.0).
+//   - Server handlers: WithListToolsHandler / WithCallToolHandler; the request ctx exposes ctx.Services
+//     so handlers resolve the DI-registered IUpstreamToolClient (the outermost decorator) at call time.
+//   - app.MapMcp() maps the Streamable HTTP endpoint at the ROOT path "/" (Decision #2 — unchanged).
+//   - Upstream pinned @azure-devops/mcp@2.7.0 local stdio, PAT = base64("email:pat") (Decision #3).
 
+using Darvoza.Gateway.Configuration;
+using Darvoza.Gateway.Upstream;
 using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 
-// --- Spike-only .env loader (no new dependency; replaced by proper config in T2) -----------------
-// Loads KEY=VALUE lines from the nearest .env (walking up from the working dir) into process env,
-// without overwriting vars already set. Secrets live in .env only (gitignored) — never in the repo.
-LoadDotEnv();
+// --- Configuration: bounded .env -> environment, then validated options ---------------------------
+// T2a (G-07): load the nearest project-root .env WITHOUT walking past the repo/solution root.
+DotEnvLoader.Load(Directory.GetCurrentDirectory());
 
-// --- Upstream leg: MCP client to the official Azure DevOps MCP server (stdio) --------------------
-// REQ-001 chose local/stdio for v1. MS also ships a REMOTE (Entra-backed) variant and plans to
-// retire local at GA — call this out in the writeup. npm version pinned in README.
-var adoOrg = Environment.GetEnvironmentVariable("ADO_ORG")
-    ?? throw new InvalidOperationException("Set ADO_ORG to your Azure DevOps organization name.");
-
-// Upstream PAT handling. @azure-devops/mcp@2.7.0 with --authentication pat reads the env var
-// PERSONAL_ACCESS_TOKEN whose value must be base64("<email>:<pat>"). We accept the PAT either:
-//   - already as PERSONAL_ACCESS_TOKEN (pre-encoded, passed through), or
-//   - as a RAW PAT in AZURE_DEVOPS_EXT_PAT (az-CLI convention) which we base64-encode here.
-// The token value is only ever held in-process and handed to the child via EnvironmentVariables;
-// it is never logged.
-var upstreamPat = Environment.GetEnvironmentVariable("PERSONAL_ACCESS_TOKEN");
-if (string.IsNullOrEmpty(upstreamPat))
+// T2c: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to `npx … <org> …`; on
+// Windows npx resolves to npx.cmd (shell), where .NET arg-escaping for batch files has known gaps.
+// This strict allowlist (no quotes/spaces/metacharacters) is therefore the LOAD-BEARING mitigation
+// for that argument-injection surface — not the OS argument escaping. Keep it strict.
+var adoOrg = Environment.GetEnvironmentVariable(GatewayOptions.AdoOrgEnvVar);
+if (!GatewayOptions.IsValidAdoOrg(adoOrg))
 {
-    var rawPat = Environment.GetEnvironmentVariable("AZURE_DEVOPS_EXT_PAT")
-        ?? throw new InvalidOperationException(
-            "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
-    upstreamPat = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
+    throw new InvalidOperationException(
+        $"{GatewayOptions.AdoOrgEnvVar} is missing or malformed. Set it to your Azure DevOps " +
+        "organization name (alphanumeric and interior hyphens only, e.g. \"darvoza-demo\").");
 }
 
-var upstreamTransport = new StdioClientTransport(new StdioClientTransportOptions
-{
-    Name = "azure-devops-upstream",
-    Command = "npx",
-    // @azure-devops/mcp@2.7.0: org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat).
-    Arguments = ["-y", "@azure-devops/mcp", adoOrg, "--authentication", "pat"],
-    // Pass the (derived) token explicitly; child also inherits the rest of the env by default.
-    EnvironmentVariables = new Dictionary<string, string?> { ["PERSONAL_ACCESS_TOKEN"] = upstreamPat },
-});
-
-// Establishes the MCP session with the upstream (initialize handshake). AC1 passes when this returns.
-var upstream = await McpClient.CreateAsync(upstreamTransport);
+// --- Upstream transport (PAT resolved once here; never stored in an app-lifetime object or logged) -
+// T2c: the @azure-devops/mcp@2.7.0 "pat" mode reads env PERSONAL_ACCESS_TOKEN = base64("email:pat").
+// Accept a pre-encoded PERSONAL_ACCESS_TOKEN, or a raw PAT in AZURE_DEVOPS_EXT_PAT we encode in-process.
+// The token is held only inside the child transport's environment (required to launch it).
+var upstreamTransport = BuildUpstreamTransport(adoOrg!);
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- Front leg: streamable-HTTP MCP server that proxies to the upstream --------------------------
-builder.Services.AddSingleton(upstream);
+// --- DI: upstream owned by the container so it is disposed on shutdown (T2b — kills the npx child) -
+builder.Services.AddSingleton(new GatewayOptions { AdoOrg = adoOrg! });
+builder.Services.AddSingleton(_ => new McpUpstreamToolClient(upstreamTransport));
+// T3/T4 will register policy/audit decorators as the IUpstreamToolClient, wrapping this concrete
+// client. Keep BOTH registrations: UpstreamConnectionInitializer resolves the concrete type for its
+// lifecycle (ConnectAsync), while handlers resolve the (decorated) interface.
+builder.Services.AddSingleton<IUpstreamToolClient>(sp => sp.GetRequiredService<McpUpstreamToolClient>());
+// PassthroughToolHandlers is a singleton here because IUpstreamToolClient is a singleton in T2. If
+// T3/T4 introduce a per-request-scoped decorator, register the decorators as singletons too, or move
+// this to AddScoped (the handlers already resolve it per-call via ctx.Services).
+builder.Services.AddSingleton<PassthroughToolHandlers>();
+builder.Services.AddHostedService<UpstreamConnectionInitializer>();
+
+// --- Front leg: streamable-HTTP MCP server proxying to the upstream via the pass-through stage -----
+// The handlers resolve IUpstreamToolClient through ctx.Services (the seam), so A01-T3/T4 decorators
+// take effect with no handler change. No policy / no audit here (T2 is pass-through only).
 builder.Services.AddMcpServer()
     .WithHttpTransport()
-    // PASSTHROUGH (spike core). In A01-T3 these handlers gain the policy filter:
-    //   list -> return only tools the caller's role allows
-    //   call -> deny-by-default unless allowed; log either way (A01-T4)
     .WithListToolsHandler(async (ctx, ct) =>
-    {
-        var tools = await upstream.ListToolsAsync(cancellationToken: ct);
-        return new ListToolsResult { Tools = [.. tools.Select(t => t.ProtocolTool)] };
-    })
+        await Handlers(ctx.Services).ListToolsAsync(ct))
     .WithCallToolHandler(async (ctx, ct) =>
     {
-        // Forward the incoming params verbatim. Errors from upstream (bad args / upstream down)
-        // surface to the caller as the SDK's standard JSON-RPC error or an isError result (AC4).
         var callParams = ctx.Params
             ?? throw new InvalidOperationException("Missing call-tool parameters.");
-        return await upstream.CallToolAsync(callParams, ct);
+        return await Handlers(ctx.Services).CallToolAsync(callParams, ct);
     });
 
 var app = builder.Build();
@@ -99,24 +78,32 @@ app.MapMcp();   // streamable-HTTP MCP endpoint at "/"
 app.Run();
 
 // -------------------------------------------------------------------------------------------------
-static void LoadDotEnv()
-{
-    for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
-    {
-        var path = Path.Combine(dir.FullName, ".env");
-        if (!File.Exists(path)) continue;
+// Resolve the pass-through stage from the request's service provider (a fresh per-request scope, since
+// McpServerOptions.ScopeRequests defaults true). Guard the nullable Services with a clear message.
+static PassthroughToolHandlers Handlers(IServiceProvider? services) =>
+    (services ?? throw new InvalidOperationException(
+        "MCP request context has no service provider — the server is not DI-integrated."))
+        .GetRequiredService<PassthroughToolHandlers>();
 
-        foreach (var raw in File.ReadAllLines(path))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            var key = line[..eq].Trim();
-            var val = line[(eq + 1)..].Trim().Trim('"');
-            if (Environment.GetEnvironmentVariable(key) is null)
-                Environment.SetEnvironmentVariable(key, val);
-        }
-        return; // first .env found wins
+static StdioClientTransport BuildUpstreamTransport(string adoOrg)
+{
+    var token = Environment.GetEnvironmentVariable("PERSONAL_ACCESS_TOKEN");
+    if (string.IsNullOrEmpty(token))
+    {
+        var rawPat = Environment.GetEnvironmentVariable("AZURE_DEVOPS_EXT_PAT")
+            ?? throw new InvalidOperationException(
+                "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
+        // Basic-auth shape is "<username>:<pat>"; Azure DevOps ignores the username, so the literal
+        // "darvoza" is an arbitrary, fixed placeholder (Decision #3) — not an operator identity.
+        token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
     }
+
+    return new StdioClientTransport(new StdioClientTransportOptions
+    {
+        Name = "azure-devops-upstream",
+        Command = "npx",
+        // @azure-devops/mcp@2.7.0: org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat).
+        Arguments = ["-y", "@azure-devops/mcp", adoOrg, "--authentication", "pat"],
+        EnvironmentVariables = new Dictionary<string, string?> { ["PERSONAL_ACCESS_TOKEN"] = token },
+    });
 }

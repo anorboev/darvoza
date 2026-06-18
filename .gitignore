@@ -19,6 +19,11 @@ audit/
 !.claude/
 !.claude/**
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Auto-generated session handoff snapshots (regenerated every session; not deliverables).
+# Real committed docs (e.g. the A01-T6 writeup) still live elsewhere under docs/.
+docs/handoffs/
 
 # OS
 .DS_Store
