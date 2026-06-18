@@ -12,11 +12,8 @@ public sealed class FakeUpstreamToolClient : IUpstreamToolClient, IAsyncDisposab
     /// <summary>Tools that <see cref="ListToolsAsync"/> returns.</summary>
     public IReadOnlyList<Tool> Tools { get; set; } = [];
 
-    /// <summary>Result that <see cref="CallToolAsync"/> returns (when <see cref="ThrowOnCall"/> is null).</summary>
+    /// <summary>Result that <see cref="CallToolAsync"/> returns.</summary>
     public CallToolResult CallResult { get; set; } = new() { Content = [] };
-
-    /// <summary>If set, <see cref="CallToolAsync"/> throws this instead of returning.</summary>
-    public Exception? ThrowOnCall { get; set; }
 
     /// <summary>The exact params object handed to the most recent <see cref="CallToolAsync"/> call.</summary>
     public CallToolRequestParams? LastCallParams { get; private set; }
@@ -29,8 +26,6 @@ public sealed class FakeUpstreamToolClient : IUpstreamToolClient, IAsyncDisposab
     public Task<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
     {
         LastCallParams = callParams;
-        if (ThrowOnCall is not null)
-            throw ThrowOnCall;
         return Task.FromResult(CallResult);
     }
 

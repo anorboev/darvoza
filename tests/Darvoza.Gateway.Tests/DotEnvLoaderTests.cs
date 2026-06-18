@@ -27,6 +27,19 @@ public sealed class DotEnvLoaderTests : IDisposable
         Assert.Null(found);
     }
 
+    [Theory]
+    [InlineData("\"abc\"", "abc")]              // double-quoted -> unwrapped
+    [InlineData("'abc'", "abc")]                // single-quoted -> unwrapped (Docker-style)
+    [InlineData("abc", "abc")]                  // bare -> unchanged
+    [InlineData("YWJjOmRlZg==", "YWJjOmRlZg==")] // base64 PAT padding preserved
+    [InlineData("\"a=b\"", "a=b")]              // inner '=' preserved
+    [InlineData("'", "'")]                       // lone quote is not a pair
+    [InlineData("\"abc'", "\"abc'")]            // mismatched quotes -> unchanged
+    public void Unquote_strips_one_matching_surrounding_pair(string raw, string expected)
+    {
+        Assert.Equal(expected, DotEnvLoader.Unquote(raw));
+    }
+
     [Fact]
     public void FindEnvFile_returns_env_at_the_repo_root()
     {

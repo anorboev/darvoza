@@ -59,13 +59,24 @@ public static class DotEnvLoader
                 continue;
 
             var key = line[..eq].Trim();
-            var val = line[(eq + 1)..].Trim().Trim('"');
+            var val = Unquote(line[(eq + 1)..].Trim());
             if (Environment.GetEnvironmentVariable(key) is null)
                 Environment.SetEnvironmentVariable(key, val);
         }
 
         return path;
     }
+
+    /// <summary>
+    /// Strips ONE matching pair of surrounding quotes (single or double) from a value, leaving it
+    /// otherwise intact (inner <c>=</c> and base64 <c>=</c> padding are preserved). Supports both
+    /// <c>KEY="value"</c> and Docker-style <c>KEY='value'</c> so an operator's PAT isn't passed to the
+    /// upstream with literal quotes around it.
+    /// </summary>
+    internal static string Unquote(string value) =>
+        value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0]
+            ? value[1..^1]
+            : value;
 
     private static bool IsRepoRoot(DirectoryInfo dir) =>
         Directory.Exists(Path.Combine(dir.FullName, ".git"))

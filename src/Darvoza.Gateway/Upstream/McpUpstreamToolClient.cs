@@ -28,8 +28,11 @@ public sealed class McpUpstreamToolClient : IUpstreamToolClient, IAsyncDisposabl
     private readonly Func<CancellationToken, Task<McpClient>>? _connect;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
 
-    private McpClient? _client;
+    // volatile so the lock-free fast-path read in ConnectAsync isn't a formally-stale load on
+    // weak-memory architectures; the in-gate check remains authoritative.
+    private volatile McpClient? _client;
     private IAsyncDisposable? _ownedConnection;
+    private bool _disposed;
 
     /// <summary>Production: connect to the upstream over the given transport when <see cref="ConnectAsync"/> runs.</summary>
     public McpUpstreamToolClient(IClientTransport transport)
@@ -51,7 +54,7 @@ public sealed class McpUpstreamToolClient : IUpstreamToolClient, IAsyncDisposabl
         await _connectGate.WaitAsync(ct);
         try
         {
-            if (_client is not null)
+            if (_disposed || _client is not null)
                 return;
             _client = await _connect(ct);
             _ownedConnection = _client;
@@ -74,12 +77,27 @@ public sealed class McpUpstreamToolClient : IUpstreamToolClient, IAsyncDisposabl
 
     public async ValueTask DisposeAsync()
     {
-        var connection = _ownedConnection;
-        _ownedConnection = null;
-        _client = null;
+        // Take the gate so disposal can never race an in-flight ConnectAsync, and mark disposed so a
+        // late connect (after teardown) is a no-op rather than re-creating + leaking a client.
+        IAsyncDisposable? connection;
+        await _connectGate.WaitAsync();
+        try
+        {
+            _disposed = true;
+            connection = _ownedConnection;
+            _ownedConnection = null;
+            _client = null;
+        }
+        finally
+        {
+            _connectGate.Release();
+        }
+
         if (connection is not null)
             await connection.DisposeAsync();
-        _connectGate.Dispose();
+
+        // _connectGate is intentionally NOT disposed: its AvailableWaitHandle is never accessed, so
+        // there is nothing to release, and disposing it here could throw inside a concurrent WaitAsync.
     }
 
     private McpClient Connected() =>

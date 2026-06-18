@@ -26,7 +26,10 @@ using ModelContextProtocol.Client;
 // T2a (G-07): load the nearest project-root .env WITHOUT walking past the repo/solution root.
 DotEnvLoader.Load(Directory.GetCurrentDirectory());
 
-// T2c: validate ADO_ORG shape fail-fast — it becomes a positional arg to the upstream npx launch.
+// T2c: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to `npx … <org> …`; on
+// Windows npx resolves to npx.cmd (shell), where .NET arg-escaping for batch files has known gaps.
+// This strict allowlist (no quotes/spaces/metacharacters) is therefore the LOAD-BEARING mitigation
+// for that argument-injection surface — not the OS argument escaping. Keep it strict.
 var adoOrg = Environment.GetEnvironmentVariable(GatewayOptions.AdoOrgEnvVar);
 if (!GatewayOptions.IsValidAdoOrg(adoOrg))
 {
@@ -46,7 +49,13 @@ var builder = WebApplication.CreateBuilder(args);
 // --- DI: upstream owned by the container so it is disposed on shutdown (T2b — kills the npx child) -
 builder.Services.AddSingleton(new GatewayOptions { AdoOrg = adoOrg! });
 builder.Services.AddSingleton(_ => new McpUpstreamToolClient(upstreamTransport));
+// T3/T4 will register policy/audit decorators as the IUpstreamToolClient, wrapping this concrete
+// client. Keep BOTH registrations: UpstreamConnectionInitializer resolves the concrete type for its
+// lifecycle (ConnectAsync), while handlers resolve the (decorated) interface.
 builder.Services.AddSingleton<IUpstreamToolClient>(sp => sp.GetRequiredService<McpUpstreamToolClient>());
+// PassthroughToolHandlers is a singleton here because IUpstreamToolClient is a singleton in T2. If
+// T3/T4 introduce a per-request-scoped decorator, register the decorators as singletons too, or move
+// this to AddScoped (the handlers already resolve it per-call via ctx.Services).
 builder.Services.AddSingleton<PassthroughToolHandlers>();
 builder.Services.AddHostedService<UpstreamConnectionInitializer>();
 
@@ -56,13 +65,12 @@ builder.Services.AddHostedService<UpstreamConnectionInitializer>();
 builder.Services.AddMcpServer()
     .WithHttpTransport()
     .WithListToolsHandler(async (ctx, ct) =>
-        await ctx.Services!.GetRequiredService<PassthroughToolHandlers>().ListToolsAsync(ct))
+        await Handlers(ctx.Services).ListToolsAsync(ct))
     .WithCallToolHandler(async (ctx, ct) =>
     {
         var callParams = ctx.Params
             ?? throw new InvalidOperationException("Missing call-tool parameters.");
-        return await ctx.Services!.GetRequiredService<PassthroughToolHandlers>()
-            .CallToolAsync(callParams, ct);
+        return await Handlers(ctx.Services).CallToolAsync(callParams, ct);
     });
 
 var app = builder.Build();
@@ -70,6 +78,13 @@ app.MapMcp();   // streamable-HTTP MCP endpoint at "/"
 app.Run();
 
 // -------------------------------------------------------------------------------------------------
+// Resolve the pass-through stage from the request's service provider (a fresh per-request scope, since
+// McpServerOptions.ScopeRequests defaults true). Guard the nullable Services with a clear message.
+static PassthroughToolHandlers Handlers(IServiceProvider? services) =>
+    (services ?? throw new InvalidOperationException(
+        "MCP request context has no service provider — the server is not DI-integrated."))
+        .GetRequiredService<PassthroughToolHandlers>();
+
 static StdioClientTransport BuildUpstreamTransport(string adoOrg)
 {
     var token = Environment.GetEnvironmentVariable("PERSONAL_ACCESS_TOKEN");
@@ -78,6 +93,8 @@ static StdioClientTransport BuildUpstreamTransport(string adoOrg)
         var rawPat = Environment.GetEnvironmentVariable("AZURE_DEVOPS_EXT_PAT")
             ?? throw new InvalidOperationException(
                 "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
+        // Basic-auth shape is "<username>:<pat>"; Azure DevOps ignores the username, so the literal
+        // "darvoza" is an arbitrary, fixed placeholder (Decision #3) — not an operator identity.
         token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
     }
 
