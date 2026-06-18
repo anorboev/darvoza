@@ -21,8 +21,9 @@
          Pin exact versions; SDK surface still moves between minors. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
-    <!-- A01-T3 (policy engine): YamlDotNet parses the declarative policy.yaml at startup. -->
-    <PackageReference Include="YamlDotNet" Version="16.*" />
+    <!-- A01-T3 (policy engine): YamlDotNet parses the declarative policy.yaml at startup.
+         Pin exact (like the SDK packages) — deserialization behavior must not drift under us. -->
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
 </Project>

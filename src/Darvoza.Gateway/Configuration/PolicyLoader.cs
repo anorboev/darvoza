@@ -52,6 +52,22 @@ public static class PolicyLoader
         if (doc is null)
             throw new InvalidOperationException($"Policy file '{source}' is empty — no roles or callers defined.");
 
+        // YamlDotNet sets properties directly and may leave a section null (key present but empty, or absent
+        // with no C# initializer applied). Guard before iterating so a malformed file fails fast with a clear
+        // message rather than a NullReferenceException.
+        if (doc.Roles is null || doc.Callers is null)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}' must define both a 'roles' and a 'callers' section.");
+        }
+
+        if (doc.Callers.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}' defines no callers — no caller could ever authenticate. " +
+                "Define at least one caller (or stop the gateway if you intend to allow nobody).");
+        }
+
         var roleAllowlists = BuildRoleAllowlists(doc);
         var keyToRole = BuildKeyToRole(doc, roleAllowlists, source, envLookup);
         return new Policy(keyToRole, roleAllowlists);
@@ -61,7 +77,12 @@ public static class PolicyLoader
     {
         var allowlists = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         foreach (var (roleName, role) in doc.Roles)
+        {
+            // A null role body ("analyst:" with no children) or an explicit "allow: []" are both valid
+            // deny-all roles — deny-by-default makes an empty allow-list meaningful, not an error.
             allowlists[roleName] = new HashSet<string>(role?.Allow ?? [], StringComparer.Ordinal);
+        }
+
         return allowlists;
     }
 

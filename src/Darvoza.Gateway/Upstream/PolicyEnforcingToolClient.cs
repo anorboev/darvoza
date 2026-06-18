@@ -50,13 +50,10 @@ public sealed class PolicyEnforcingToolClient(
     }
 
     // A clean, non-leaky denial: states the tool and that it is not permitted, without revealing the
-    // caller's role or the rest of the allow-list.
+    // caller's role, the rest of the allow-list, or the existence of key-based auth.
     private static CallToolResult Denied(string toolName) => new()
     {
         IsError = true,
-        Content = [new TextContentBlock
-        {
-            Text = $"Policy denied: tool '{toolName}' is not permitted for your caller key.",
-        }],
+        Content = [new TextContentBlock { Text = $"Policy denied: tool '{toolName}' is not permitted." }],
     };
 }

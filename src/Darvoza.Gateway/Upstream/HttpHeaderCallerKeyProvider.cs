@@ -15,7 +15,11 @@ public sealed class HttpHeaderCallerKeyProvider(IHttpContextAccessor httpContext
     /// <inheritdoc />
     public string? GetCallerKey()
     {
-        var value = httpContextAccessor.HttpContext?.Request.Headers[HeaderName].ToString();
-        return string.IsNullOrEmpty(value) ? null : value;
+        var header = httpContextAccessor.HttpContext?.Request.Headers[HeaderName];
+        if (header is not { Count: 1 })
+            return null;   // absent, or ambiguous multi-value (a proxy/misconfig could duplicate it) → deny
+
+        var value = header.Value[0];
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 }

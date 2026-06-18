@@ -118,4 +118,74 @@ public class PolicyLoaderTests
         Assert.False(policy.IsAllowed("secret", "anything"));
         Assert.Empty(policy.AllowlistFor("secret"));
     }
+
+    [Fact]
+    public void Empty_document_throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => PolicyLoader.Parse("", "test", _ => "x"));
+        Assert.Contains("empty", ex.Message);
+    }
+
+    [Fact]
+    public void Caller_with_no_role_throws()
+    {
+        var yaml = """
+            callers:
+              - keyEnv: K
+            roles:
+              analyst:
+                allow: [repo_list]
+            """;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => PolicyLoader.Parse(yaml, "test", _ => "secret"));
+        Assert.Contains("no 'role'", ex.Message);
+    }
+
+    [Fact]
+    public void Document_with_no_callers_throws_fail_fast()
+    {
+        // A roles-only file would start the gateway denying everyone — a misconfiguration, not a mode.
+        var yaml = """
+            roles:
+              analyst:
+                allow: [repo_list]
+            """;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => PolicyLoader.Parse(yaml, "test", _ => "secret"));
+        Assert.Contains("no callers", ex.Message);
+    }
+
+    [Fact]
+    public void Document_missing_the_roles_section_throws_rather_than_NRE()
+    {
+        // 'roles:' present but null — YamlDotNet can leave the property null; we must fail fast, not throw NRE.
+        var yaml = """
+            callers:
+              - keyEnv: K
+                role: analyst
+            roles:
+            """;
+
+        // The contract is "fail fast with a clear InvalidOperationException, never a NullReferenceException."
+        var ex = Assert.Throws<InvalidOperationException>(() => PolicyLoader.Parse(yaml, "test", _ => "secret"));
+        Assert.Contains("role", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Role_with_a_null_body_is_a_valid_deny_all_role()
+    {
+        // "locked:" with no children deserializes to a null role body — treated as deny-all, like allow: [].
+        var yaml = """
+            callers:
+              - keyEnv: K
+                role: locked
+            roles:
+              locked:
+            """;
+
+        var policy = PolicyLoader.Parse(yaml, "test", _ => "secret");
+
+        Assert.Equal("locked", policy.RoleForKey("secret"));
+        Assert.False(policy.IsAllowed("secret", "anything"));
+    }
 }

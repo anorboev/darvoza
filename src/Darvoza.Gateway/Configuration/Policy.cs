@@ -29,6 +29,12 @@ public sealed class Policy
     }
 
     /// <summary>Resolves a caller key to its role, or <c>null</c> if the key is missing/unknown.</summary>
+    /// <remarks>
+    /// The dictionary lookup is not constant-time, so it leaks a small timing signal on the caller key.
+    /// Acceptable while the front leg is loopback/trusted-network only (repo is private until A01-T6);
+    /// a fixed-time comparison (or hashing the key to a fixed-width digest first) is tracked for T6b,
+    /// alongside front-leg transport authentication (G-10).
+    /// </remarks>
     public string? RoleForKey(string? callerKey) =>
         callerKey is not null && _keyToRole.TryGetValue(callerKey, out var role) ? role : null;
 

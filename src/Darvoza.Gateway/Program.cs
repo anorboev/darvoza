@@ -76,8 +76,9 @@ builder.Services.AddSingleton<PassthroughToolHandlers>();
 builder.Services.AddHostedService<UpstreamConnectionInitializer>();
 
 // --- Front leg: streamable-HTTP MCP server proxying to the upstream via the pass-through stage -----
-// The handlers resolve IUpstreamToolClient through ctx.Services (the seam), so A01-T3/T4 decorators
-// take effect with no handler change. No policy / no audit here (T2 is pass-through only).
+// The handlers resolve IUpstreamToolClient through ctx.Services (the seam), so the T3 policy decorator
+// (and a future T4 audit decorator) take effect with no handler change. Enforcement lives in that
+// decorator, not here — these handlers stay a thin pass-through over the resolved outermost interface.
 builder.Services.AddMcpServer()
     .WithHttpTransport()
     .WithListToolsHandler(async (ctx, ct) =>
