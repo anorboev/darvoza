@@ -41,7 +41,9 @@ any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio─�
 
 > Requires .NET 10 SDK (LTS) + Node (for the upstream `npx` server) + an Azure DevOps org with a least-privilege PAT.
 
-Secrets load from a gitignored `.env` (walked up from the working dir) or from real env vars.
+Secrets load from real env vars, or from a gitignored `.env` discovered by walking up from the
+working dir **to the repo/solution root** — the search is bounded and never reads a `.env` outside
+the project tree. Values already set in the environment take precedence over the `.env`.
 
 ```bash
 export ADO_ORG="your-org"
