@@ -194,6 +194,35 @@ public class AuditingToolClientTests
     }
 
     [Fact]
+    public async Task Upstream_exception_still_writes_exactly_one_error_record_then_rethrows()
+    {
+        var (sut, upstream, sink, _) = Build("engineer-key"); // allowed, so the call reaches upstream
+        upstream.ThrowOnCall = true;                          // ...where the transport faults
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await sut.CallToolAsync(
+                new CallToolRequestParams { Name = "wit_get_work_item" }, CancellationToken.None));
+
+        var record = Parse(Assert.Single(sink.Lines)); // 100% coverage: the faulted call is still recorded
+        Assert.Equal("allow", record.GetProperty("decision").GetString());
+        Assert.Equal("error", record.GetProperty("upstream").GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task When_both_upstream_and_audit_fail_the_upstream_exception_propagates()
+    {
+        var (sut, upstream, sink, _) = Build("engineer-key");
+        upstream.ThrowOnCall = true; // upstream transport faults...
+        sink.ThrowOnWrite = true;    // ...and the best-effort audit write also fails
+
+        // The original upstream fault must surface — not the secondary IOException from the sink.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await sut.CallToolAsync(
+                new CallToolRequestParams { Name = "wit_get_work_item" }, CancellationToken.None));
+        Assert.Empty(sink.Lines);
+    }
+
+    [Fact]
     public async Task ListTools_is_forwarded_and_writes_no_audit_record()
     {
         var (sut, _, sink, _) = Build("engineer-key");

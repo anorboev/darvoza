@@ -5,8 +5,10 @@ namespace Darvoza.Gateway.Audit;
 /// <summary>
 /// Append-only JSONL audit sink (A01-T4). One line per record, newline-terminated, UTF-8. A single
 /// <see cref="SemaphoreSlim"/> serializes writes so concurrent <c>CallToolAsync</c> calls never interleave
-/// a partial line, and each record is flushed to the OS before the write returns (durability over
-/// throughput — the fail-closed guarantee needs the bytes on disk, not in a buffer).
+/// a partial line, and each record is flushed to the OS buffer before the write returns (durability over
+/// throughput). Note this is a <see cref="FileStream.FlushAsync()"/> to the OS page cache, not an
+/// <c>fsync</c> — a crash/power loss can still drop the most recent record; full sync durability is a
+/// deployment-tier concern beyond this v1.
 /// </summary>
 /// <remarks>
 /// Registered as a container-owned singleton (G-09) implementing <see cref="IAsyncDisposable"/>, so the DI
@@ -17,7 +19,8 @@ public sealed class JsonlAuditSink : IAuditSink, IAsyncDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _path;
     private FileStream? _stream;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private int _disposeGuard; // 0 = not yet disposed; set once via Interlocked so DisposeAsync is idempotent
 
     /// <param name="path">The audit file path. Its directory is created if it does not exist.</param>
     public JsonlAuditSink(string path)
@@ -50,6 +53,13 @@ public sealed class JsonlAuditSink : IAuditSink, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Idempotent: only the first call proceeds, so a second dispose can never double-release the gate
+        // or fault. (IAsyncDisposable does not guarantee a single call.)
+        if (Interlocked.Exchange(ref _disposeGuard, 1) != 0)
+            return;
+
+        // The gate is never disposed (see below), so this WaitAsync cannot fault — the matching Release in
+        // the finally is therefore always balanced.
         await _gate.WaitAsync();
         try
         {

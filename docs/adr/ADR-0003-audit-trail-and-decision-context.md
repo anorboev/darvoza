@@ -34,8 +34,10 @@ that — the outer decorator holds the reference directly. Both the context and 
 ### 2. Record schema (one JSONL line per `CallToolAsync`)
 `ts` (UTC ISO-8601), `tool`, `caller` (`role` + non-reversible `keyFingerprint`), `decision`
 (`allow`/`deny`), `reason` (deny only), `args` (redacted: key names + count + SHA-256 digest — **never the
-values**), `upstream` (`{status: ok|error}`, `null` on deny), `latencyMs`. **No raw secret is ever
-written** — not the caller key, not the PAT, not unredacted arguments. The caller fingerprint is a truncated
+values**), `upstream` (`{status: ok|error}`, `null` on deny), `latencyMs`. (`decision` also has a defensive
+`"unknown"` value for the should-not-occur case where the policy stage never published a decision — e.g. a
+future reordering that lets the inner call fault first — so a missing decision can never read as a granted
+call.) **No raw secret is ever written** — not the caller key, not the PAT, not unredacted arguments. The caller fingerprint is a truncated
 SHA-256 of the caller key, computed by the policy stage (which already holds the key), so the audit stage
 never touches the raw secret. `ListToolsAsync` is **not** a tool call and is not audited.
 

@@ -25,12 +25,19 @@ public sealed class FakeUpstreamToolClient : IUpstreamToolClient, IAsyncDisposab
     /// test clock so an outer decorator observes non-zero latency.</summary>
     public Action? BeforeReturn { get; set; }
 
+    /// <summary>When true, <see cref="CallToolAsync"/> throws — simulating an upstream transport failure
+    /// (as opposed to an upstream tool error, which is a returned <see cref="CallToolResult"/> with
+    /// <see cref="CallToolResult.IsError"/>).</summary>
+    public bool ThrowOnCall { get; set; }
+
     public Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken ct) => Task.FromResult(Tools);
 
     public ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
     {
-        LastCallParams = callParams;
+        LastCallParams = callParams; // the call reached upstream...
         BeforeReturn?.Invoke();
+        if (ThrowOnCall)
+            throw new InvalidOperationException("upstream transport failure (test)"); // ...and the transport faulted
         return ValueTask.FromResult(CallResult);
     }
 

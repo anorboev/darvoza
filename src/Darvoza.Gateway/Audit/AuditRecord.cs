@@ -49,10 +49,14 @@ public sealed record AuditRecord
 
     // One cached, no-indent options instance → each record serializes to exactly one line. Property names
     // come from the explicit [JsonPropertyName] attributes above (no reflective name policy needed).
+    // DefaultIgnoreCondition.Never is deliberate: every record carries the SAME keys (a fixed schema), so
+    // log tooling can rely on field presence and a denial reads as `"upstream":null` rather than a missing
+    // key. The trade-off (slightly larger allow lines + null-sentinel rather than absence semantics) is
+    // accepted in favor of a stable, self-documenting line shape.
     private static readonly JsonSerializerOptions LineOptions = new()
     {
         WriteIndented = false,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never, // stable shape: every record has the same keys
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     };
 
     /// <summary>Serializes this record to a single JSON line (no embedded newlines).</summary>

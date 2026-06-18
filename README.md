@@ -114,6 +114,10 @@ written, the call **fails closed** — no unaudited success is returned.
 
 On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky message, and `upstream` is `null`.
 
+> The trail records roles, key fingerprints, and tool names — keep the audit directory on
+> operator-private storage (the file is opened `FileShare.Read` so it can be tailed live). Hardened
+> per-deployment ACLs and multi-tenant isolation are out of v1 scope.
+
 ## Scope (v1 / MVP)
 
 In: streamable-HTTP front · stdio upstream · YAML policy · JSONL audit · two-role demo · writeup.

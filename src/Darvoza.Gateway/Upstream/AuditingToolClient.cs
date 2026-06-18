@@ -94,7 +94,15 @@ public sealed class AuditingToolClient(
             Ts = timestamp.ToUniversalTime().ToString("O"),
             Tool = callParams.Name,
             Caller = new AuditCaller { Role = box.Role, KeyFingerprint = box.CallerFingerprint },
-            Decision = box.Decision == CallDecisionKind.Deny ? "deny" : "allow",
+            // A null Decision means the policy stage never published one (only reachable if the inner call
+            // faulted before the policy decorator recorded — see the catch path). Record it as "unknown"
+            // rather than silently coercing to "allow", so a mislabel can never read as a granted call.
+            Decision = box.Decision switch
+            {
+                CallDecisionKind.Allow => "allow",
+                CallDecisionKind.Deny => "deny",
+                _ => "unknown",
+            },
             Reason = box.Reason,
             Args = AuditArgs.From(callParams.Arguments),
             Upstream = upstreamStatus is null ? null : new AuditUpstream { Status = upstreamStatus },
