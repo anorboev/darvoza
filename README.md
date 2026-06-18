@@ -10,9 +10,9 @@ Per-role tool policy, deny-by-default, full audit trail.
 > Because Darvoza is itself a standard streamable-HTTP MCP server, any MCP client consumes it
 > identically — examples below lead with Claude.
 
-> **Status:** 🔵 build in progress (Sprint A; A01-T1 spike + A01-T2 skeleton merged, A01-T3 next;
-> ship target ~2026-07-27). This is a focused open-source *reference implementation* — consulting
-> proof-of-work, not a product launch.
+> **Status:** 🔵 build in progress (Sprint A; A01-T1 spike + A01-T2 skeleton + A01-T3 policy merged,
+> A01-T4 audit in progress; ship target ~2026-07-27). This is a focused open-source *reference
+> implementation* — consulting proof-of-work, not a product launch.
 
 ## Why this exists
 
@@ -52,6 +52,7 @@ export AZURE_DEVOPS_EXT_PAT="<least-privilege raw PAT>"   # never commit
 cp policy.example.yaml policy.yaml                        # required — the gateway won't start without a policy
 export DARVOZA_KEY_ANALYST="<analyst caller key>"         # the X-Darvoza-Key value bound to the analyst role
 export DARVOZA_KEY_ENGINEER="<engineer caller key>"       # …and the engineer role (keys live in env, not the file)
+# optional: export DARVOZA_AUDIT_PATH=...                 # audit-trail file (default: ./audit/darvoza-audit.jsonl, gitignored)
 dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 by default
 # then point any MCP client (Claude Code/Desktop, VS Code Copilot, …) at  http://localhost:5000/
 # …sending its per-caller key as the  X-Darvoza-Key  request header
@@ -85,6 +86,38 @@ roles:
     allow: [repo_list, wit_get_work_item]   # every other tool is denied by default
 ```
 
+## Audit trail (JSONL)
+
+Every `tools/call` through Darvoza writes **exactly one** structured JSON line — for all three outcomes:
+allowed→upstream-ok, allowed→upstream-error, and policy-denied (the denied call is recorded and never
+reaches upstream). This 100%-coverage trail is the headline guarantee. Records are **append-only** to a
+configurable file (`DARVOZA_AUDIT_PATH`; default `./audit/darvoza-audit.jsonl`, gitignored). The audit
+layer is the outermost decorator over the policy layer (see `docs/adr/ADR-0003`).
+
+**No raw secret is ever written** — never the caller key, never the PAT, never unredacted argument values.
+The caller is identified by role plus a non-reversible short fingerprint of its key; arguments are summarized
+as their key names + count + a SHA-256 digest (the values are hashed, never stored). If a record cannot be
+written, the call **fails closed** — no unaudited success is returned.
+
+```json
+{
+  "ts": "2026-06-18T12:00:00.0000000+00:00",
+  "tool": "wit_get_work_item",
+  "caller": { "role": "analyst", "keyFingerprint": "a1b2c3d4" },
+  "decision": "allow",
+  "reason": null,
+  "args": { "keys": ["id", "project"], "count": 2, "sha256": "…" },
+  "upstream": { "status": "ok" },
+  "latencyMs": 42
+}
+```
+
+On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky message, and `upstream` is `null`.
+
+> The trail records roles, key fingerprints, and tool names — keep the audit directory on
+> operator-private storage (the file is opened `FileShare.Read` so it can be tailed live). Hardened
+> per-deployment ACLs and multi-tenant isolation are out of v1 scope.
+
 ## Scope (v1 / MVP)
 
 In: streamable-HTTP front · stdio upstream · YAML policy · JSONL audit · two-role demo · writeup.
@@ -100,15 +133,16 @@ Full requirement: `../../../pm/requirements/REQ-001-claude-ado-governance-gatewa
 |---|---|
 | A01-T1 | Spike: SDK-to-SDK passthrough (list + call round-trip). ✅ done (PR #1) |
 | A01-T2 | Gateway skeleton: HTTP front + stdio upstream client. ✅ done (PR #2) |
-| A01-T3 | Policy engine (YAML roles/allowlists, deny-by-default, caller keys). ← current |
-| A01-T4 | Audit logging (JSONL, 100% coverage incl. denials) |
+| A01-T3 | Policy engine (YAML roles/allowlists, deny-by-default, caller keys). ✅ done (PR #5) |
+| A01-T4 | Audit logging (JSONL, 100% coverage incl. denials). ← current |
 | A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video |
 | A01-T6 | README + technical writeup + security review + publish |
 
 ## Security
 
 Deny-by-default; secrets via env only; no credentials in the repo. Authorization-boundary
-code → a security review pass runs before this repo is made public (A01-T6).
+code → a security review pass runs before this repo is made public (A01-T6). Architecture decisions
+are recorded in `docs/adr/` (the seam, lifecycle, policy, and audit design).
 
 ## License
 
