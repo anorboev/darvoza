@@ -32,7 +32,7 @@ public sealed class McpUpstreamToolClient : IUpstreamToolClient, IAsyncDisposabl
     // weak-memory architectures; the in-gate check remains authoritative.
     private volatile McpClient? _client;
     private IAsyncDisposable? _ownedConnection;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     /// <summary>Production: connect to the upstream over the given transport when <see cref="ConnectAsync"/> runs.</summary>
     public McpUpstreamToolClient(IClientTransport transport)
@@ -72,8 +72,8 @@ public sealed class McpUpstreamToolClient : IUpstreamToolClient, IAsyncDisposabl
         return [.. tools.Select(t => t.ProtocolTool)];
     }
 
-    public Task<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
-        => Connected().CallToolAsync(callParams, ct).AsTask();
+    public ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
+        => Connected().CallToolAsync(callParams, ct);
 
     public async ValueTask DisposeAsync()
     {

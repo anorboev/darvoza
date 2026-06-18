@@ -26,5 +26,7 @@ public interface IUpstreamToolClient
     Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken ct);
 
     /// <summary>Invokes a tool, forwarding the request parameters verbatim.</summary>
-    Task<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct);
+    /// <remarks><see cref="ValueTask{T}"/> to match the SDK's return type and avoid a wrap/unwrap
+    /// allocation through the pass-through stage. Await it at most once (standard ValueTask contract).</remarks>
+    ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct);
 }

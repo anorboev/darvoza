@@ -23,10 +23,10 @@ public sealed class FakeUpstreamToolClient : IUpstreamToolClient, IAsyncDisposab
 
     public Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken ct) => Task.FromResult(Tools);
 
-    public Task<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
+    public ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
     {
         LastCallParams = callParams;
-        return Task.FromResult(CallResult);
+        return ValueTask.FromResult(CallResult);
     }
 
     public ValueTask DisposeAsync()

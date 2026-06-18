@@ -22,5 +22,5 @@ public sealed class PassthroughToolHandlers(IUpstreamToolClient upstream)
 
     /// <summary>Forwards the call request parameters to the upstream verbatim (Decision #1).</summary>
     public ValueTask<CallToolResult> CallToolAsync(CallToolRequestParams callParams, CancellationToken ct)
-        => new(upstream.CallToolAsync(callParams, ct));
+        => upstream.CallToolAsync(callParams, ct);
 }
