@@ -55,7 +55,8 @@ public sealed class LivePipelineE2ETests
 
         var result = await client.CallToolAsync(WriteTool, WorkItemArgs());
 
-        Assert.NotEqual(true, result.IsError);                           // success result (IsError is null/false)
+        Assert.NotEqual(true, result.IsError);                           // MCP SDK leaves IsError null on success
+        Assert.NotEmpty(result.Content);                                 // a real upstream payload came back
         Assert.NotNull(factory.Upstream.LastCallParams);                 // forwarded to upstream...
         Assert.Equal(WriteTool, factory.Upstream.LastCallParams!.Name);  // ...as the same tool
 
@@ -73,12 +74,28 @@ public sealed class LivePipelineE2ETests
 
         var result = await client.CallToolAsync(ReadTool, WorkItemArgs());
 
-        Assert.NotEqual(true, result.IsError);                           // success result (IsError is null/false)
+        Assert.NotEqual(true, result.IsError);                           // MCP SDK leaves IsError null on success
+        Assert.NotEmpty(result.Content);                                 // a real upstream payload came back
         Assert.Equal(ReadTool, factory.Upstream.LastCallParams!.Name);
 
         var record = SingleAuditRecord(factory);
         Assert.Equal("allow", record.GetProperty("decision").GetString());
         Assert.Equal("analyst", record.GetProperty("caller").GetProperty("role").GetString());
+    }
+
+    [Fact]
+    public async Task Tools_list_is_filtered_per_role_so_the_analyst_cannot_even_see_the_write()
+    {
+        await using var factory = new DarvozaWebAppFactory();
+
+        await using var analyst = await factory.CreateMcpClientAsync(DarvozaWebAppFactory.AnalystKey);
+        var analystTools = (await analyst.ListToolsAsync()).Select(t => t.Name).ToArray();
+        Assert.Contains(ReadTool, analystTools);
+        Assert.DoesNotContain(WriteTool, analystTools);     // deny-by-default hides the unlisted write entirely
+
+        await using var engineer = await factory.CreateMcpClientAsync(DarvozaWebAppFactory.EngineerKey);
+        var engineerTools = (await engineer.ListToolsAsync()).Select(t => t.Name).ToArray();
+        Assert.Contains(WriteTool, engineerTools);          // the engineer role does see it
     }
 
     [Fact]

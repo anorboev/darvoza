@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace Darvoza.Gateway.Tests.E2E;
 
@@ -29,9 +30,12 @@ namespace Darvoza.Gateway.Tests.E2E;
 /// <c>UpstreamConnectionInitializer</c> hosted service is removed so host startup never tries to connect.
 /// </para>
 /// <para>
-/// Pre-<c>Build()</c> env (set in the static ctor, before the host builder runs the top-level program):
-/// a valid <c>ADO_ORG</c>, a dummy PAT (lets the stdio transport DESCRIPTOR build — it is never connected),
-/// the fixture policy path, and the two caller-key env vars the policy references.
+/// Pre-<c>Build()</c> env (set in the ctor, before the host builder runs the top-level program): a valid
+/// <c>ADO_ORG</c>, a dummy PAT (lets the stdio transport DESCRIPTOR build — it is never connected), the
+/// fixture policy path, and the two caller-key env vars the policy references. These are <b>throwaway test
+/// values</b> routed through the real process env only because the composition root reads
+/// <see cref="Environment.GetEnvironmentVariable(string)"/> directly (no config seam) — NEVER replicate this
+/// pattern for real credentials.
 /// </para>
 /// </remarks>
 internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
@@ -40,11 +44,21 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     public const string EngineerKey = "e2e-engineer-key-DO-NOT-LOG";
 
     /// <summary>The fake upstream leaf — inspect <see cref="FakeUpstreamToolClient.LastCallParams"/> to prove
-    /// a denied call never reached upstream, or configure its result for an allowed call.</summary>
-    public FakeUpstreamToolClient Upstream { get; } = new();
+    /// a denied call never reached upstream, or read its (pre-seeded) result/tool list for an allowed call.</summary>
+    internal FakeUpstreamToolClient Upstream { get; } = new()
+    {
+        // Seeded so allowed calls return real content and tools/list filtering is observable end-to-end.
+        Tools =
+        [
+            new Tool { Name = "wit_list_work_items" },
+            new Tool { Name = "wit_get_work_item" },
+            new Tool { Name = "wit_create_work_item" },
+        ],
+        CallResult = new CallToolResult { Content = [new TextContentBlock { Text = "upstream-ok" }] },
+    };
 
     /// <summary>The audit sink — assert on <see cref="FakeAuditSink.Lines"/> (the exact JSONL bytes).</summary>
-    public FakeAuditSink Audit { get; } = new();
+    internal FakeAuditSink Audit { get; } = new();
 
     /// <summary>
     /// The top-level <c>Program</c> reads ADO_ORG / the PAT / the policy path + caller-key env vars via
@@ -52,7 +66,9 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     /// config seam for them. So we set them, force the host to build now (capturing them into the Policy
     /// + transport singletons), then RESTORE the originals so this process-global mutation never leaks into
     /// the unit tests that assert on these vars being unset (e.g. ResolvePolicyPath precedence). The suite
-    /// disables cross-class parallelization (see <c>TestParallelization.cs</c>) so no test reads them mid-window.
+    /// disables cross-class parallelization (<c>TestParallelization.cs</c>) so no test reads them mid-window —
+    /// a collection-scoped disable would NOT help, since it only serializes within one collection, not across
+    /// the other test classes that race on these process-global vars.
     /// </summary>
     public DarvozaWebAppFactory()
     {
@@ -66,11 +82,12 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
             ("DARVOZA_KEY_ENGINEER", EngineerKey),
         };
 
+        // Snapshot BEFORE any mutation; open the try BEFORE the first Set so a partial mutation always restores.
         var originals = env.Select(e => (e.Key, Value: Environment.GetEnvironmentVariable(e.Key))).ToArray();
-        foreach (var (key, value) in env)
-            Environment.SetEnvironmentVariable(key, value);
         try
         {
+            foreach (var (key, value) in env)
+                Environment.SetEnvironmentVariable(key, value);
             _ = Services; // force EnsureServer() -> runs Program (reads the env) + ConfigureTestServices now
         }
         finally
@@ -84,11 +101,13 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureTestServices(services =>
         {
-            // 1. No upstream connect at startup — drop the hosted service that would spawn npx.
+            // 1. No upstream connect at startup — drop the hosted service that would spawn npx, and drop the
+            //    concrete McpUpstreamToolClient registration so nothing can resolve a live stdio transport.
             var connectInitializer = services.SingleOrDefault(
                 d => d.ImplementationType == typeof(UpstreamConnectionInitializer));
             if (connectInitializer is not null)
                 services.Remove(connectInitializer);
+            services.RemoveAll<McpUpstreamToolClient>();
 
             // 2. Fake the upstream LEAF + the audit sink; keep the real decorator chain and key provider.
             services.AddSingleton(Upstream);

@@ -35,6 +35,8 @@ export ADO_ORG="anorboev"
 export AZURE_DEVOPS_EXT_PAT="<your least-privilege raw PAT>"   # never commit; held in-process, never logged
 
 # --- policy: copy the example, then set the two caller keys it references ---
+# Run this (and step 2's `dotnet run`) FROM THE REPO ROOT: the gateway resolves policy.yaml relative to
+# its working directory, so the copy and the run must share the same CWD.
 cp policy.example.yaml policy.yaml             # REQUIRED — the gateway refuses to start without a policy
 export DARVOZA_KEY_ANALYST="analyst-demo-key-$(openssl rand -hex 8)"
 export DARVOZA_KEY_ENGINEER="engineer-demo-key-$(openssl rand -hex 8)"
@@ -60,12 +62,17 @@ echo "analyst  X-Darvoza-Key = $DARVOZA_KEY_ANALYST"
 echo "engineer X-Darvoza-Key = $DARVOZA_KEY_ENGINEER"
 ```
 
+> ⚠️ **Recording:** do this **before** you start recording, and clear your terminal scrollback
+> afterward — these keys are throwaway demo values, but the habit (keys off-camera) is the point of the
+> demo. The PAT is never printed.
+
 ---
 
 ## 2. Start the gateway (~1 min)
 
 ```bash
-dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000
+# from the repo root (same CWD as the policy.yaml you just created):
+dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 (default Kestrel; or $ASPNETCORE_URLS)
 ```
 
 The MCP endpoint is the **root path** `/` (streamable HTTP). On startup the gateway connects to the
@@ -130,7 +137,8 @@ Then, in the MCP client:
 
 3. **Show the trail.** Point at the two new JSONL lines — same tool, same args shape, **opposite decision** —
    each carrying the caller role + a non-reversible key fingerprint, with **no raw key, no PAT, and no
-   argument values** written:
+   argument values** written (the `keyFingerprint`/`sha256`/`ts` values below are **illustrative** — your
+   run produces different digests):
 
    ```json
    {"ts":"…","tool":"wit_create_work_item","caller":{"role":"analyst","keyFingerprint":"a1b2c3d4"},"decision":"deny","reason":"…","args":{"keys":["project","title"],"count":2,"sha256":"…"},"upstream":null,"latencyMs":1}
