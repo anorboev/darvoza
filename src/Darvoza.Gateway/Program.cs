@@ -147,3 +147,8 @@ static StdioClientTransport BuildUpstreamTransport(string adoOrg)
         EnvironmentVariables = new Dictionary<string, string?> { ["PERSONAL_ACCESS_TOKEN"] = token },
     });
 }
+
+// Test affordance only (A01-T5 / closes A01-T6d): make the implicit Program entry type public + partial so
+// the e2e test project can drive the REAL composition root via WebApplicationFactory<Program> (the live
+// X-Darvoza-Key -> HttpHeaderCallerKeyProvider -> policy -> audit pipeline). No runtime behavior change.
+public partial class Program;

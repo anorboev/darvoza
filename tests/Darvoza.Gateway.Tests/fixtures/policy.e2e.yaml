@@ -1,0 +1,22 @@
+# Darvoza policy — E2E TEST FIXTURE (A01-T5 / closes A01-T6d). NOT a deployable policy.
+# Minimal two-role shape the live-pipeline test drives: analyst is read-only, engineer adds one write.
+# Key VALUES come from env vars the test sets (DARVOZA_KEY_ANALYST / DARVOZA_KEY_ENGINEER) — never here.
+
+callers:
+  - keyEnv: DARVOZA_KEY_ANALYST
+    role: analyst
+  - keyEnv: DARVOZA_KEY_ENGINEER
+    role: engineer
+
+roles:
+  analyst:
+    # read-only: may query work items, may NOT create them
+    allow:
+      - wit_list_work_items
+      - wit_get_work_item
+  engineer:
+    # read + the one write the demo turns on
+    allow:
+      - wit_list_work_items
+      - wit_get_work_item
+      - wit_create_work_item

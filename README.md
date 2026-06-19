@@ -58,6 +58,10 @@ dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:50
 # …sending its per-caller key as the  X-Darvoza-Key  request header
 ```
 
+> **Demo:** for a guided two-role walkthrough (analyst write **denied** + audited, engineer write
+> **allowed** + audited, then the resulting JSONL) against a free Azure DevOps org, follow
+> [`demo/RUNBOOK.md`](demo/RUNBOOK.md).
+
 > **PAT handling:** the upstream `@azure-devops/mcp` `pat` mode reads `PERSONAL_ACCESS_TOKEN`
 > whose value must be **base64 of `email:pat`**. Darvoza accepts either: a raw PAT in
 > `AZURE_DEVOPS_EXT_PAT` (it base64-encodes it in-process for the upstream), or a pre-encoded
