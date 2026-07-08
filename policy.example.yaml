@@ -12,24 +12,30 @@ roles:
   analyst:
     # read-only: can see and query, cannot mutate
     allow:
-      - repo_list
-      - repo_get
-      - wit_list_work_items
+      - repo_list_repos_by_project
+      - repo_get_repo_by_name_or_id
+      - wit_my_work_items
+      - wit_query_by_wiql
       - wit_get_work_item
-      - build_list
+      - build_get_builds
     # everything else (create/update/delete) -> denied by default
 
   engineer:
     allow:
-      - repo_list
-      - repo_get
-      - wit_list_work_items
+      - repo_list_repos_by_project
+      - repo_get_repo_by_name_or_id
+      - wit_my_work_items
+      - wit_query_by_wiql
       - wit_get_work_item
       - wit_create_work_item     # the "allowed write" in the two-role demo
       - wit_update_work_item
-      - build_list
-      - build_run
+      - build_get_builds
+      - pipelines_run_pipeline
 
 # NOTE: tool names mirror the official azure-devops-mcp surface, which is in public
-# preview and can change. Deny-by-default means new upstream tools are invisible until
-# explicitly allowed — document this as intended behavior (REQ-001 edge case).
+# preview and can change (these names are verified against @azure-devops/mcp 2.7.0;
+# an earlier revision of this file used pre-2.7 names like wit_list_work_items and
+# repo_list, which no longer exist upstream). Deny-by-default means renamed/new
+# upstream tools are invisible until explicitly allowed — document this as intended
+# behavior (REQ-001 edge case). If tools/list shows fewer tools than a role allows,
+# diff this list against the live upstream surface and refresh the names.
