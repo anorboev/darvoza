@@ -35,22 +35,26 @@ export ADO_ORG="anorboev"
 export AZURE_DEVOPS_EXT_PAT="<your least-privilege raw PAT>"   # never commit; held in-process, never logged
 
 # --- policy: copy the example, then set the two caller keys it references ---
-# Run this (and step 2's `dotnet run`) FROM THE REPO ROOT: the gateway resolves policy.yaml relative to
-# its working directory, so the copy and the run must share the same CWD.
 cp policy.example.yaml policy.yaml             # REQUIRED — the gateway refuses to start without a policy
 export DARVOZA_KEY_ANALYST="analyst-demo-key-$(openssl rand -hex 8)"
 export DARVOZA_KEY_ENGINEER="engineer-demo-key-$(openssl rand -hex 8)"
 
-# --- optional: where the audit trail is written (default shown) ---
-export DARVOZA_AUDIT_PATH="./audit/darvoza-audit.jsonl"        # gitignored
+# --- pin the policy + audit paths to the repo root (NOT optional; see below) ---
+export DARVOZA_POLICY_PATH="$PWD/policy.yaml"
+export DARVOZA_AUDIT_PATH="$PWD/audit/darvoza-audit.jsonl"     # gitignored
 ```
 
 Why each step:
 
 - **`cp policy.example.yaml policy.yaml`** — the active `policy.yaml` is gitignored; a fresh clone has no
   policy and **deny-by-default means the gateway won't start** until you create one. The example already
-  encodes the two demo roles: `analyst` (read-only: `wit_list_work_items`, `wit_get_work_item`) and
-  `engineer` (those reads **plus** `wit_create_work_item`).
+  encodes the two demo roles: `analyst` (read-only: `wit_get_work_item`, `wit_my_work_items`,
+  `wit_query_by_wiql`, …) and `engineer` (those reads **plus** `wit_create_work_item`).
+- **`DARVOZA_POLICY_PATH` / `DARVOZA_AUDIT_PATH`** — without them, the gateway resolves both paths
+  against its **working directory — which `dotnet run --project` sets to `src/Darvoza.Gateway`**, not
+  the repo root you launched from. You would then hit a startup policy error (no
+  `src/Darvoza.Gateway/policy.yaml`) — or, worse, tail an empty repo-root audit file while the real trail
+  lands in `src/Darvoza.Gateway/audit/`. Pinning both to `$PWD` makes the demo deterministic.
 - **`DARVOZA_KEY_ANALYST` / `DARVOZA_KEY_ENGINEER`** — the policy file names these env vars (`keyEnv`); the
   secret **values live in the environment, never in the file**. Each value is the `X-Darvoza-Key` a caller
   presents. An unset/empty key env var is a hard startup failure (never a silently-disabled caller).
@@ -71,7 +75,7 @@ echo "engineer X-Darvoza-Key = $DARVOZA_KEY_ENGINEER"
 ## 2. Start the gateway (~1 min)
 
 ```bash
-# from the repo root (same CWD as the policy.yaml you just created):
+# from the repo root, in the same shell as step 1 (the exported env vars must be visible):
 dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 (default Kestrel; or $ASPNETCORE_URLS)
 ```
 
@@ -120,7 +124,7 @@ Restart/reconnect the client so both servers connect. Each will advertise only i
 Open a second terminal to watch the trail live:
 
 ```bash
-tail -f ./audit/darvoza-audit.jsonl     # or $DARVOZA_AUDIT_PATH
+tail -f "$DARVOZA_AUDIT_PATH"     # the repo-root audit/darvoza-audit.jsonl you pinned in step 1
 ```
 
 Then, in the MCP client:
@@ -154,7 +158,9 @@ of which MCP client drove it.
 
 | Symptom | Cause / fix |
 |---|---|
-| Gateway exits on startup with a policy error | You skipped `cp policy.example.yaml policy.yaml`, or a `keyEnv` var (`DARVOZA_KEY_ANALYST`/`ENGINEER`) is unset/empty. |
-| Gateway exits with an upstream connection error | PAT wrong/expired or `ADO_ORG` wrong. The gateway connects fail-fast on purpose. |
-| Every call is denied, even reads | The client isn't sending `X-Darvoza-Key`, or the key doesn't match the env value. Re-check the `headers` map. |
-| No audit lines appear | Wrong path — `tail` the same file as `DARVOZA_AUDIT_PATH` (default `./audit/darvoza-audit.jsonl`). |
+| Gateway exits on startup with a policy error | You skipped `cp policy.example.yaml policy.yaml`, forgot `DARVOZA_POLICY_PATH` (without it the gateway looks in `src/Darvoza.Gateway/`, not the repo root), or a `keyEnv` var (`DARVOZA_KEY_ANALYST`/`ENGINEER`) is unset/empty. |
+| Gateway exits with an upstream connection error | `ADO_ORG` wrong or `npx` can't launch. Note: the fail-fast start validates the local MCP handshake only — a bad PAT does **not** fail here; it surfaces on the first real call. |
+| Every call is denied, even reads (audit shows `"role":null`) | The client isn't sending `X-Darvoza-Key`, or the key doesn't match the env value — watch for an invisible trailing `\r` if the keys were sourced from a CRLF-ended file. Re-check the `headers` map. |
+| Engineer's create returns `Failed request: (401)` | The PAT lacks the Work Items **Write** scope — Azure DevOps reports a missing *scope* as 401 (not 403), and reads can still succeed. Regenerate the PAT with **Work Items (Read & Write)**. |
+| `tools/list` shows fewer tools than the policy allows | Upstream tool names drifted (the server is in public preview); deny-by-default hides unknown names. Diff `policy.yaml` against the live surface — the example is verified against `@azure-devops/mcp` 2.7.0. |
+| No audit lines appear | You're tailing a different file than the gateway writes. `tail -f "$DARVOZA_AUDIT_PATH"` in the step-1 shell; without that env var the trail lands in `src/Darvoza.Gateway/audit/`. |

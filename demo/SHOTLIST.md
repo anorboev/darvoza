@@ -23,6 +23,6 @@ connected in the client, and a terminal already `tail -f`-ing the audit trail. T
 - **Keep secrets off-camera.** The `X-Darvoza-Key` values, the PAT, and `.env` must never be on screen.
   Show the client config with the key field **redacted** or pre-filled before recording.
 - **Pre-clear the trail** so only the demo's two lines appear: stop the gateway, delete/rotate
-  `./audit/darvoza-audit.jsonl`, restart.
+  `"$DARVOZA_AUDIT_PATH"` (the repo-root `audit/darvoza-audit.jsonl` pinned in RUNBOOK step 1), restart.
 - **Pause on each audit line** long enough to read `decision` + `caller.role` + `upstream`.
 - Hosting/linking the finished video is handled in **A01-T6** (writeup + publish).
