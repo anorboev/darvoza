@@ -52,7 +52,7 @@ export AZURE_DEVOPS_EXT_PAT="<least-privilege raw PAT>"   # never commit
 cp policy.example.yaml policy.yaml                        # required — the gateway won't start without a policy
 export DARVOZA_KEY_ANALYST="<analyst caller key>"         # the X-Darvoza-Key value bound to the analyst role
 export DARVOZA_KEY_ENGINEER="<engineer caller key>"       # …and the engineer role (keys live in env, not the file)
-export DARVOZA_POLICY_PATH="$PWD/policy.yaml"             # pin to the repo root — under `dotnet run --project` the app's content root is src/Darvoza.Gateway
+export DARVOZA_POLICY_PATH="$PWD/policy.yaml"             # pin to the repo root — `dotnet run --project` runs the app with its working directory set to src/Darvoza.Gateway
 export DARVOZA_AUDIT_PATH="$PWD/audit/darvoza-audit.jsonl"   # audit-trail file (gitignored)
 dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:5000 by default
 # then point any MCP client (Claude Code/Desktop, VS Code Copilot, …) at  http://localhost:5000/
@@ -78,9 +78,10 @@ allowed for the caller's role is denied *before it reaches upstream*, and `tools
 caller-role's allowed tools. A caller identifies itself with a per-caller secret sent as the
 `X-Darvoza-Key` request header; an unknown or missing key is denied. The file maps `roles → allow`
 (exact tool-name allowlists) and `callers → role`, where each caller's key is supplied via a named
-environment variable (`keyEnv`) — never written in the file. The gateway loads `policy.yaml` (or a
-gitignored `policy.local.yaml` override, or `$DARVOZA_POLICY_PATH`) at startup and **fails to start** if
-it is missing, unparseable, or half-configured — it never starts open. See `policy.example.yaml`.
+environment variable (`keyEnv`) — never written in the file. The gateway resolves the policy at startup
+— `$DARVOZA_POLICY_PATH` if set, else a gitignored `policy.local.yaml` override, else `policy.yaml` —
+and **fails to start** if it is missing, unparseable, or half-configured — it never starts open. See
+`policy.example.yaml`.
 
 ```yaml
 callers:

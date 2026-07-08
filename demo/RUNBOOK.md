@@ -51,7 +51,7 @@ Why each step:
   encodes the two demo roles: `analyst` (read-only: `wit_get_work_item`, `wit_my_work_items`,
   `wit_query_by_wiql`, …) and `engineer` (those reads **plus** `wit_create_work_item`).
 - **`DARVOZA_POLICY_PATH` / `DARVOZA_AUDIT_PATH`** — without them, the gateway resolves both paths
-  against the app's **content root, which under `dotnet run --project` is `src/Darvoza.Gateway`** — not
+  against its **working directory — which `dotnet run --project` sets to `src/Darvoza.Gateway`**, not
   the repo root you launched from. You would then hit a startup policy error (no
   `src/Darvoza.Gateway/policy.yaml`) — or, worse, tail an empty repo-root audit file while the real trail
   lands in `src/Darvoza.Gateway/audit/`. Pinning both to `$PWD` makes the demo deterministic.
