@@ -33,6 +33,7 @@ From the repo root:
 # --- upstream (Azure DevOps) ---
 export ADO_ORG="anorboev"
 read -rs -p "PAT: " AZURE_DEVOPS_EXT_PAT && export AZURE_DEVOPS_EXT_PAT   # prompted, so it stays out of ~/.bash_history
+# zsh (macOS default) has no -p: use  read -s "AZURE_DEVOPS_EXT_PAT?PAT: " && export AZURE_DEVOPS_EXT_PAT
 
 # --- policy: copy the example, then set the two caller keys it references ---
 cp policy.example.yaml policy.yaml             # REQUIRED — the gateway refuses to start without a policy
@@ -87,15 +88,22 @@ tailing the trail) must happen in **this same PowerShell window**, or open new o
 
 Print the two keys so you can paste them into the client config in the next step:
 
+Prefer the clipboard over the screen. Copy **one at a time** — the clipboard holds a single value, so
+running both lines back to back leaves you only the second:
+
 ```bash
-# Prefer the clipboard over the screen — paste straight into the client config, one at a time:
-printf %s "$DARVOZA_KEY_ANALYST"  | clip.exe        # macOS: pbcopy · Linux: xclip -selection clipboard
+printf %s "$DARVOZA_KEY_ANALYST" | clip.exe         # macOS: pbcopy · Linux: xclip -selection clipboard
+# …paste it into the analyst server entry, THEN come back for the engineer key:
 printf %s "$DARVOZA_KEY_ENGINEER" | clip.exe
 ```
 
 ```powershell
-Set-Clipboard -Value $env:DARVOZA_KEY_ANALYST       # then paste; repeat for the engineer key
+Set-Clipboard -Value $env:DARVOZA_KEY_ANALYST       # paste, then repeat for the engineer key
 ```
+
+> ⚠️ **Before recording, turn off clipboard sync and clear clipboard history** (Windows: Settings →
+> System → Clipboard; Win+V retains entries and can sync them to your Microsoft account). A caller key in
+> clipboard history outlives the shell, and the Win+V panel opening mid-take would put it on screen.
 
 If you do print them instead, they are working caller credentials in your scrollback — see the teardown
 note below.
@@ -107,8 +115,10 @@ note below.
 > 🧹 **Teardown — do this after the last take, before publishing anything:**
 > 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens. It is the only real
 >    credential in the demo, and A01-T6 publishes the repo and the video.
-> 2. **Discard both caller keys** — close the shell (they were never written to a file) and, if you
->    generated them into a client config, delete those two server entries. They are live keys until then.
+> 2. **Discard both caller keys** — close the shell (they were never written to a file), delete the two
+>    server entries from the client config, and **clear the clipboard and its history**
+>    (`Set-Clipboard -Value ' '` / `echo -n | clip.exe`, then Win+V → Clear all). The clipboard survives
+>    the shell you just closed. They are live keys until all of that is done.
 > 3. **Re-watch the footage for leaks** before upload: scrollback, the client config pane, and any frame
 >    where a key or the PAT could have been on screen. The audit trail itself is safe to show — it carries
 >    only a role and a non-reversible fingerprint, never the key.
@@ -236,8 +246,8 @@ the day, shots 4 and 5 can be produced entirely from two terminal invocations pl
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--url` | `http://localhost:5000/` | the gateway's root MCP endpoint. Non-loopback hosts are **refused unless the scheme is `https`** — the caller key is attached to every request, so it is never sent in cleartext to a remote host |
-| `--key-env` | `DARVOZA_KEY_ANALYST` | name of the env var holding the key — **never the key itself** |
+| `--url` | `http://localhost:5000/` | the gateway's root MCP endpoint. **Loopback only** (http/https, no embedded credentials, redirects disabled) — the caller key is attached to every request, and this tool only ever targets a local gateway |
+| `--key-env` | `DARVOZA_KEY_ANALYST` | **name** of the env var holding the key — never the key itself. Must be a `DARVOZA_KEY_*` name, so a shell-expanded typo is rejected without echoing the key, and the tool can't be pointed at your PAT |
 | `--tool` | `wit_create_work_item` | any tool name; it is sent whether or not policy allows it |
 | `--title` | `Rogue attempt` | work-item title (sent as `System.Title` inside `fields`) |
 | `--arg k=v` | — | repeatable; supplying any `--arg` replaces the default argument set **wholesale**, so `--title` is then ignored — put the title in your own `fields`. Any `--tool` other than `wit_create_work_item` requires `--arg` (the defaults are create-shaped and are not applied to another tool). |

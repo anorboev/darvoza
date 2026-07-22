@@ -15,6 +15,7 @@
 //   dotnet run --project demo/tools/RogueCaller -- --key-env DARVOZA_KEY_ENGINEER
 //   dotnet run --project demo/tools/RogueCaller -- --tool wit_update_work_item --arg id=1
 
+using System.Globalization;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -42,6 +43,10 @@ for (var i = 0; i < args.Length; i++)
             toolArgs[name] = v; i++; break;
         case "--arg":
             Console.Error.WriteLine("--arg needs the form name=value.");
+            return 2;
+        // A recognized flag that ran out of value — say so, rather than calling it "unknown" below.
+        case "--url" or "--key-env" or "--tool" or "--title":
+            Console.Error.WriteLine($"{args[i]} needs a value.");
             return 2;
         case "--help" or "-h":
             Console.WriteLine("usage: RogueCaller [--url URL] [--key-env ENV] [--tool NAME] [--title T] [--arg k=v]...");
@@ -73,19 +78,30 @@ else if (toolArgs.Count == 0)
     return 2;
 }
 
-if (!Uri.TryCreate(url, UriKind.Absolute, out var endpoint))
+// --key-env names an ENV VAR, never a key. Constrain it to the gateway's own DARVOZA_KEY_* namespace:
+// it stops `--key-env AZURE_DEVOPS_EXT_PAT` from turning this into a PAT exfiltrator, and it means a
+// shell-expanded fat-finger (`--key-env $DARVOZA_KEY_ANALYST`) is rejected WITHOUT echoing the key.
+if (!keyEnv.StartsWith("DARVOZA_KEY_", StringComparison.Ordinal) || !keyEnv.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
 {
-    Console.Error.WriteLine($"--url is not an absolute URL: {url}");
+    Console.Error.WriteLine("--key-env must be the NAME of a DARVOZA_KEY_* environment variable, not a key value.");
     return 2;
 }
 
-// The caller key rides on EVERY request to whatever --url names. Refuse to hand a live credential to a
-// non-loopback host over plaintext http: a mistyped or pasted-from-anywhere URL would otherwise exfiltrate
-// it, and on a real network it would also be on the wire in cleartext.
-if (!endpoint.IsLoopback && endpoint.Scheme != Uri.UriSchemeHttps)
+if (!Uri.TryCreate(url, UriKind.Absolute, out var endpoint)
+    || endpoint.Scheme is not (("http") or ("https"))   // `file:` has an empty host, which IsLoopback calls loopback
+    || endpoint.UserInfo.Length > 0)                    // userinfo would put a password in the banner below
 {
-    Console.Error.WriteLine(
-        $"refusing to send {HeaderName} to non-loopback host '{endpoint.Host}' over {endpoint.Scheme}. Use https for a remote gateway.");
+    Console.Error.WriteLine("--url must be an absolute http(s) URL with no embedded credentials.");
+    return 2;
+}
+
+// The caller key rides on EVERY request to whatever --url names, so this stays a loopback-only tool: the
+// gateway it demos is a localhost process. That keeps a mistyped or pasted-from-anywhere URL from handing a
+// live credential to a third party. Redirects are disabled below for the same reason — .NET strips
+// Authorization across hosts but NOT custom headers, so a 302 would forward X-Darvoza-Key verbatim.
+if (!endpoint.IsLoopback)
+{
+    Console.Error.WriteLine($"refusing to send {HeaderName} to non-loopback host '{endpoint.Host}'. This tool only targets a local gateway.");
     return 2;
 }
 
@@ -96,44 +112,62 @@ if (string.IsNullOrWhiteSpace(key))
     return 2;
 }
 
-Console.WriteLine($"rogue caller -> {url}");
+Console.WriteLine($"rogue caller -> {endpoint.GetLeftPart(UriPartial.Path)}");
 Console.WriteLine($"  identity : {HeaderName} from ${keyEnv}   (value never printed)");
 Console.WriteLine($"  tool     : {tool}   (calling it directly — tools/list is deliberately NOT requested)");
 Console.WriteLine($"  args     : {string.Join(", ", toolArgs.Keys)}");
 Console.WriteLine();
 
-var transport = new HttpClientTransport(new HttpClientTransportOptions
-{
-    Endpoint = endpoint,
-    TransportMode = HttpTransportMode.StreamableHttp,
-    AdditionalHeaders = new Dictionary<string, string> { [HeaderName] = key },
-});
+// AllowAutoRedirect=false: a redirect off the loopback host would re-send X-Darvoza-Key to the new host.
+var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+var transport = new HttpClientTransport(
+    new HttpClientTransportOptions
+    {
+        Endpoint = endpoint,
+        TransportMode = HttpTransportMode.StreamableHttp,
+        AdditionalHeaders = new Dictionary<string, string> { [HeaderName] = key },
+    },
+    http,
+    ownsHttpClient: true);
 
 CallToolResult result;
 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));   // fail fast, never hang on camera
+var stage = $"reach the gateway at {endpoint.GetLeftPart(UriPartial.Path)}";  // narrows to the call once connected
 try
 {
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
+    stage = $"complete the {tool} call";
     result = await client.CallToolAsync(tool, toolArgs, cancellationToken: timeout.Token);
 }
 catch (Exception ex)
 {
-    // A stack trace mid-shot would expose local paths and derail the take; one clean line instead.
-    Console.Error.WriteLine($"could not reach the gateway at {endpoint}: {ex.Message}");
-    Console.Error.WriteLine("Is it running, and is this the same shell that has the key env vars?");
+    // A stack trace mid-shot would expose local paths and derail the take; one clean line instead. The
+    // message can carry SERVER-supplied text (a JSON-RPC error string), so it is sanitized like any other
+    // upstream content.
+    var why = timeout.IsCancellationRequested ? "timed out after 30s" : Printable(ex.Message);
+    Console.Error.WriteLine($"could not {stage}: {why}");
+    Console.Error.WriteLine("Is the gateway running, and is this the same shell that has the key env vars?");
     return 2;
 }
 
+// The verdict line is derived from result.IsError (a bool), never from upstream text, so it cannot be
+// spoofed — and every upstream line below is indented, so upstream content can never start at column 0
+// and forge a line of this program's own output.
 Console.WriteLine(result.IsError is true ? "DENIED (or upstream error) — gateway response:" : "ALLOWED — gateway response:");
 foreach (var block in result.Content)
-    Console.WriteLine("  " + Printable(block is TextContentBlock text ? text.Text : block.Type));
+    foreach (var line in Printable(block is TextContentBlock text ? text.Text : block.Type).Split('\n'))
+        Console.WriteLine("  " + line);
 
 Console.WriteLine();
 Console.WriteLine("One audit line was written for this call either way — tail $DARVOZA_AUDIT_PATH.");
 return result.IsError is true ? 1 : 0;
 
-// The response body is upstream-controlled (an Azure DevOps work-item field can carry anything). Strip
-// control characters so a crafted payload can't emit ANSI/CR sequences that repaint the lines above —
-// i.e. forge "ALLOWED" over the gateway's "DENIED" in the one frame the demo's credibility rests on.
-static string Printable(string s) =>
-    string.Concat(s.Select(c => c is '\n' or '\t' || !char.IsControl(c) ? c : '�'));
+// Upstream content is attacker-influenced (an Azure DevOps work-item field can carry anything). Replace
+// control characters — ANSI/CR sequences that would repaint the verdict above — and Unicode FORMAT
+// characters (bidi overrides, zero-width), which are category Cf and slip past char.IsControl. Length is
+// capped so a wall of text can't scroll the verdict off screen.
+static string Printable(string s) => string.Concat(
+    (s.Length > 2000 ? s[..2000] + " …[truncated]" : s)
+    .Select(c => c is '\n' or '\t' ? c
+        : char.IsControl(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format ? '�'
+        : c));

@@ -39,5 +39,6 @@ required.
   entirely from the rogue caller (RUNBOOK step 5): analyst key → denied, `--key-env DARVOZA_KEY_ENGINEER`
   → created. You lose the 4a "the client can't even see it" beat, so cover it with a caption over the
   filtered tool list from shot 3.
-- **Rogue caller output is camera-safe** — it prints the *name* of the key env var, never the key value.
+- **Rogue caller output is camera-safe** — it prints the *name* of the key env var, never the key value,
+  and it rejects a `--key-env` that was accidentally shell-expanded into a key rather than echoing it.
 - Hosting/linking the finished video is handled in **A01-T6** (writeup + publish).
