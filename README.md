@@ -10,9 +10,10 @@ Per-role tool policy, deny-by-default, full audit trail.
 > Because Darvoza is itself a standard streamable-HTTP MCP server, any MCP client consumes it
 > identically — examples below lead with Claude.
 
-> **Status:** 🔵 build in progress (Sprint A; A01-T1 spike + A01-T2 skeleton + A01-T3 policy merged,
-> A01-T4 audit in progress; ship target ~2026-07-27). This is a focused open-source *reference
-> implementation* — consulting proof-of-work, not a product launch.
+> **Status:** 🔵 build in progress (Sprint A; A01-T1 spike + A01-T2 skeleton + A01-T3 policy +
+> A01-T4 audit merged, A01-T5 demo assets complete — only the recording itself is outstanding;
+> ship target ~2026-07-27). This is a focused open-source *reference implementation* — consulting
+> proof-of-work, not a product launch.
 
 ## Why this exists
 
@@ -141,8 +142,8 @@ Full requirement: `../../../pm/requirements/REQ-001-claude-ado-governance-gatewa
 | A01-T1 | Spike: SDK-to-SDK passthrough (list + call round-trip). ✅ done (PR #1) |
 | A01-T2 | Gateway skeleton: HTTP front + stdio upstream client. ✅ done (PR #2) |
 | A01-T3 | Policy engine (YAML roles/allowlists, deny-by-default, caller keys). ✅ done (PR #5) |
-| A01-T4 | Audit logging (JSONL, 100% coverage incl. denials). ← current |
-| A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video |
+| A01-T4 | Audit logging (JSONL, 100% coverage incl. denials). ✅ done (PR #6) |
+| A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video. ← current — [runbook](demo/RUNBOOK.md), [shot-list](demo/SHOTLIST.md), live-pipeline e2e test and [rogue-caller script](demo/tools/RogueCaller) all done (PRs #7/#8/#9); the recording is the remaining step |
 | A01-T6 | README + technical writeup + security review + publish |
 
 ## Security

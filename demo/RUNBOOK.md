@@ -242,7 +242,7 @@ dotnet run --project demo/tools/RogueCaller -- --key-env DARVOZA_KEY_ENGINEER
 ```
 
 This doubles as the **terminal-only fallback** for the whole demo: if the desktop client misbehaves on
-the day, shots 4 and 5 can be produced entirely from two terminal invocations plus the audit tail.
+the day, shots 4a/4b and 5 can be produced entirely from two terminal invocations plus the audit tail.
 
 | Flag | Default | Notes |
 |---|---|---|
