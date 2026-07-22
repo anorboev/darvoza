@@ -16,6 +16,7 @@
 //   dotnet run --project demo/tools/RogueCaller -- --tool wit_update_work_item --arg id=1
 
 using System.Globalization;
+using System.Text;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -74,7 +75,7 @@ if (toolArgs.Count == 0 && tool == DefaultTool)
 }
 else if (toolArgs.Count == 0)
 {
-    Console.Error.WriteLine($"--tool {tool} needs its own arguments: pass --arg name=value (repeatable).");
+    Console.Error.WriteLine($"--tool {Printable(tool)} needs its own arguments: pass --arg name=value (repeatable).");
     return 2;
 }
 
@@ -114,8 +115,8 @@ if (string.IsNullOrWhiteSpace(key))
 
 Console.WriteLine($"rogue caller -> {endpoint.GetLeftPart(UriPartial.Path)}");
 Console.WriteLine($"  identity : {HeaderName} from ${keyEnv}   (value never printed)");
-Console.WriteLine($"  tool     : {tool}   (calling it directly — tools/list is deliberately NOT requested)");
-Console.WriteLine($"  args     : {string.Join(", ", toolArgs.Keys)}");
+Console.WriteLine($"  tool     : {Printable(tool)}   (calling it directly — tools/list is deliberately NOT requested)");
+Console.WriteLine($"  args     : {Printable(string.Join(", ", toolArgs.Keys))}");
 Console.WriteLine();
 
 // AllowAutoRedirect=false: a redirect off the loopback host would re-send X-Darvoza-Key to the new host.
@@ -136,7 +137,7 @@ var stage = $"reach the gateway at {endpoint.GetLeftPart(UriPartial.Path)}";  //
 try
 {
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
-    stage = $"complete the {tool} call";
+    stage = $"complete the {Printable(tool)} call";
     result = await client.CallToolAsync(tool, toolArgs, cancellationToken: timeout.Token);
 }
 catch (Exception ex)
@@ -164,10 +165,13 @@ return result.IsError is true ? 1 : 0;
 
 // Upstream content is attacker-influenced (an Azure DevOps work-item field can carry anything). Replace
 // control characters — ANSI/CR sequences that would repaint the verdict above — and Unicode FORMAT
-// characters (bidi overrides, zero-width), which are category Cf and slip past char.IsControl. Length is
-// capped so a wall of text can't scroll the verdict off screen.
+// characters (bidi overrides, zero-width), which are category Cf and slip past the control check. Length
+// is capped so a wall of text can't scroll the verdict off screen. Enumerating RUNES rather than chars
+// keeps non-BMP format characters from slipping through as surrogate halves; CRLF is normalized first so
+// legitimate Windows line endings don't each render as a replacement mark.
 static string Printable(string s) => string.Concat(
-    (s.Length > 2000 ? s[..2000] + " …[truncated]" : s)
-    .Select(c => c is '\n' or '\t' ? c
-        : char.IsControl(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format ? '�'
-        : c));
+    (s.Length > 2000 ? s[..2000] + " …[truncated]" : s).ReplaceLineEndings("\n")
+    .EnumerateRunes()
+    .Select(r => r.Value is '\n' or '\t' ? r.ToString()
+        : Rune.IsControl(r) || Rune.GetUnicodeCategory(r) == UnicodeCategory.Format ? "�"
+        : r.ToString()));
