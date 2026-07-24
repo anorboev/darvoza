@@ -4,9 +4,8 @@
 **the same write tool denied for a read-only analyst and allowed for an engineer, each producing one
 audit record** — in **under 15 minutes**.
 
-This is the runbook the recording docs record against — the current one is the
-[DEMO-RUN-SHEET](DEMO-RUN-SHEET.md) (v2, silent take + captions, one-click prep); the earlier
-[shot-list](SHOTLIST.md) keeps the per-shot rationale and caption text it builds on. The automated test
+For a scripted setup, [`demo-oneclick.ps1`](demo-oneclick.ps1) automates steps 1–2 and the audit tail
+(Windows/PowerShell). The automated test
 `tests/Darvoza.Gateway.Tests/E2E/LivePipelineE2ETests.cs` proves the same pipeline in CI with a fake
 upstream; this runbook drives the **real** Azure DevOps org.
 
@@ -117,14 +116,13 @@ Set-Clipboard -Value $env:DARVOZA_KEY_ANALYST       # paste, then repeat for the
 If you do print them instead, they are working caller credentials in your scrollback — see the teardown
 note below.
 
-> ⚠️ **Recording:** do this **before** you start recording, and clear your terminal scrollback
-> afterward — these keys are throwaway demo values, but the habit (keys off-camera) is the point of the
-> demo. The PAT is never printed.
+> ⚠️ **Recording:** if you're screen-recording the demo, do this **before** you start recording, and
+> clear your terminal scrollback afterward — these keys are throwaway demo values, but the habit
+> (keys off-camera) is the point of the demo. The PAT is never printed.
 >
-> 🧹 **Teardown — do this after the last take, before publishing anything:**
+> 🧹 **Teardown — do this after the demo, before publishing any recording:**
 > 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens, and delete its line
->    from the repo-root `.env` if you keep one there. It is the only real credential in the demo, and
->    A01-T6 publishes the repo and the video.
+>    from the repo-root `.env` if you keep one there. It is the only real credential in the demo.
 > 2. **Discard both caller keys** — if they live in the gitignored repo-root `.env` (the one-click
 >    script's workflow), rotate or delete those `DARVOZA_KEY_*` lines; then close the demo shells,
 >    delete the two server entries from the client config, and **clear the clipboard and its history**
@@ -255,8 +253,9 @@ Run the identical invocation as the engineer and it is forwarded and the work it
 dotnet run --project demo/tools/RogueCaller -- --key-env DARVOZA_KEY_ENGINEER
 ```
 
-This doubles as the **terminal-only fallback** for the whole demo: if the desktop client misbehaves on
-the day, shots 4a/4b and 5 can be produced entirely from two terminal invocations plus the audit tail.
+This doubles as the **terminal-only fallback** for the whole demo: if the desktop client misbehaves,
+the deny and allow legs of step 4 can be produced entirely from two terminal invocations plus the
+audit tail.
 
 | Flag | Default | Notes |
 |---|---|---|

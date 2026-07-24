@@ -1,8 +1,8 @@
 # Darvoza ADRs
 
 Architecture decisions locked during the build, so later tasks build to them instead of re-deriving.
-Source of truth for the raw decisions is the planning workspace `_cc-progress/decisions-and-gotchas.md`;
-these promote the load-bearing ones into the code repo (the in-code `ADR-####` citations resolve here).
+The raw decisions were captured in an internal planning workspace during development; these ADRs
+promote the load-bearing ones into the code repo (the in-code `ADR-####` citations resolve here).
 
 | ADR | Title | Binding on |
 |---|---|---|

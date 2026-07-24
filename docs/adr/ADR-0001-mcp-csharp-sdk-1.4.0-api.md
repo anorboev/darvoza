@@ -1,7 +1,7 @@
 # ADR-0001 — MCP C# SDK 1.4.0: adopted API surface
 
 **Status:** Accepted · 2026-06-18 (locked by A01-T1 spike PR #1 `61f0946`, carried by A01-T2 PR #2 `9630daa`).
-**Context source:** `_cc-progress/decisions-and-gotchas.md` decision #1.
+**Context source:** internal planning-workspace decision #1.
 
 ## Context
 Darvoza is built on the official MCP C# SDK (`ModelContextProtocol*` 1.4.0, maintained with Microsoft).
