@@ -84,4 +84,32 @@ public class GatewayOptionsTests
 
         Assert.Equal(new byte[32], salt);
     }
+
+    // A01-T6b — the non-loopback startup warning's URL classifier. X-Darvoza-Key is app-layer
+    // authorization, NOT transport authentication, so the operator must be told when the gateway
+    // binds beyond loopback. Anything unparseable or odd classifies as NON-loopback (warn) — and,
+    // per G-22, an empty host must never count as loopback.
+    [Theory]
+    [InlineData("http://localhost:5000")]
+    [InlineData("http://127.0.0.1:5000")]
+    [InlineData("http://[::1]:5000")]
+    [InlineData("https://localhost")]
+    public void IsLoopbackUrl_accepts_loopback_binds(string url)
+    {
+        Assert.True(GatewayOptions.IsLoopbackUrl(url));
+    }
+
+    [Theory]
+    [InlineData("http://0.0.0.0:5000")]      // wildcard IPv4
+    [InlineData("http://[::]:5000")]         // wildcard IPv6
+    [InlineData("http://+:5000")]            // Kestrel wildcard (unparseable as Uri)
+    [InlineData("http://*:5000")]            // Kestrel wildcard
+    [InlineData("http://192.168.1.20:5000")] // a real network address
+    [InlineData("http://darvoza.internal")]  // a hostname that isn't localhost
+    [InlineData("file:///C:/x")]             // non-HTTP scheme + empty host (the G-22 trap)
+    [InlineData("")]                         // unparseable
+    public void IsLoopbackUrl_treats_everything_else_as_non_loopback(string url)
+    {
+        Assert.False(GatewayOptions.IsLoopbackUrl(url));
+    }
 }

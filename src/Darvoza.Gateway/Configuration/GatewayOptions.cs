@@ -94,6 +94,26 @@ public sealed partial class GatewayOptions
             : System.Text.Encoding.UTF8.GetBytes(configured);
     }
 
+    /// <summary>
+    /// True only for an http/https URL whose host is definitively loopback (A01-T6b). Used by the
+    /// startup warning: <c>X-Darvoza-Key</c> is app-layer authorization, NOT transport authentication,
+    /// so binding beyond loopback deserves an explicit operator warning. Fail-closed classification:
+    /// anything unparseable, wildcard (<c>0.0.0.0</c>, <c>[::]</c>, <c>+</c>, <c>*</c>), non-HTTP, or
+    /// empty-hosted counts as NON-loopback. (Per G-22, <see cref="Uri.IsLoopback"/> alone is a trap —
+    /// it returns true for empty-host URIs — hence the scheme + explicit-host checks first.)
+    /// </summary>
+    public static bool IsLoopbackUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        if (uri.Scheme is not ("http" or "https") || string.IsNullOrEmpty(uri.Host))
+            return false;
+        if (uri.Host is "0.0.0.0" or "[::]" or "::")
+            return false;
+
+        return uri.IsLoopback;
+    }
+
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
     // leading/trailing hyphen, no whitespace/slashes/scheme. Bounds length to a sane 64 chars.
     [GeneratedRegex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$")]

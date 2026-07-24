@@ -120,6 +120,20 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 app.MapMcp();   // streamable-HTTP MCP endpoint at "/"
+
+// T6b (G-10 #2): X-Darvoza-Key is app-layer AUTHORIZATION, not transport authentication. The v1
+// deployment assumption is loopback/trusted-network; if the operator binds wider, say so loudly.
+// (Also remember G-21: unauthenticated tools/list probing leaves no audit trail in v1.)
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    foreach (var url in app.Urls.Where(url => !GatewayOptions.IsLoopbackUrl(url)))
+    {
+        app.Logger.LogWarning(
+            "Darvoza is listening on non-loopback address {Url}. The X-Darvoza-Key header is " +
+            "authorization, NOT transport authentication — on an untrusted network, front the " +
+            "gateway with TLS and network-level authentication (see README, Security model).", url);
+    }
+});
 app.Run();
 
 // -------------------------------------------------------------------------------------------------

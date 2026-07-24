@@ -156,4 +156,25 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
         var transport = new HttpClientTransport(options, httpClient, ownsHttpClient: true);
         return await McpClient.CreateAsync(transport, cancellationToken: ct);
     }
+
+    /// <summary>
+    /// Connect a client that sends MULTIPLE <c>X-Darvoza-Key</c> header lines (T6b: a proxy/misconfig
+    /// could duplicate the header — the provider must treat that as ambiguous and deny). The values go
+    /// on the HttpClient's default headers, since the transport's AdditionalHeaders is single-valued.
+    /// </summary>
+    public async Task<McpClient> CreateMcpClientWithHeaderValuesAsync(
+        string[] callerKeyValues, CancellationToken ct = default)
+    {
+        var httpClient = CreateClient();
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation(
+            HttpHeaderCallerKeyProvider.HeaderName, callerKeyValues);
+        var options = new HttpClientTransportOptions
+        {
+            Endpoint = httpClient.BaseAddress!,
+            TransportMode = HttpTransportMode.StreamableHttp,
+        };
+
+        var transport = new HttpClientTransport(options, httpClient, ownsHttpClient: true);
+        return await McpClient.CreateAsync(transport, cancellationToken: ct);
+    }
 }

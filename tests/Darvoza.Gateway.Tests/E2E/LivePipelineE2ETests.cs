@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
 
 namespace Darvoza.Gateway.Tests.E2E;
 
@@ -111,6 +112,60 @@ public sealed class LivePipelineE2ETests
 
         var record = SingleAuditRecord(factory);
         Assert.Equal("deny", record.GetProperty("decision").GetString());
+    }
+
+    [Fact]
+    public async Task Unknown_key_is_denied_with_one_audit_record_and_upstream_is_never_called()
+    {
+        // T6b (G-10 #2): an unknown-but-present key is the probe case — it must deny AND leave a trail
+        // (unlike unauthenticated tools/list, which is deliberately unaudited — G-21).
+        await using var factory = new DarvozaWebAppFactory();
+        await using var client = await factory.CreateMcpClientAsync("not-a-configured-key");
+
+        var result = await client.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(result.IsError);
+        Assert.Null(factory.Upstream.LastCallParams);
+
+        var record = SingleAuditRecord(factory);
+        Assert.Equal("deny", record.GetProperty("decision").GetString());
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("caller").GetProperty("role").ValueKind);
+    }
+
+    [Fact]
+    public async Task Duplicated_key_header_is_ambiguous_and_denied()
+    {
+        // T6b: a proxy or client misconfig that duplicates X-Darvoza-Key must not half-authenticate.
+        await using var factory = new DarvozaWebAppFactory();
+        await using var client = await factory.CreateMcpClientWithHeaderValuesAsync(
+            [DarvozaWebAppFactory.EngineerKey, DarvozaWebAppFactory.EngineerKey]);
+
+        var result = await client.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(result.IsError);
+        Assert.Null(factory.Upstream.LastCallParams);
+        Assert.Equal("deny", SingleAuditRecord(factory).GetProperty("decision").GetString());
+    }
+
+    [Fact]
+    public async Task Denial_text_is_identical_for_unknown_key_and_known_key_denied_tool()
+    {
+        // T6b info-leak check: the deny result must not let a caller distinguish "my key is unknown"
+        // from "my key is known but this tool is denied" — either would confirm key validity.
+        await using var factory = new DarvozaWebAppFactory();
+
+        static string DenyText(CallToolResult result) =>
+            Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+
+        await using var unknown = await factory.CreateMcpClientAsync("not-a-configured-key");
+        var unknownDenial = await unknown.CallToolAsync(WriteTool, WorkItemArgs());
+
+        await using var analyst = await factory.CreateMcpClientAsync(DarvozaWebAppFactory.AnalystKey);
+        var knownDenial = await analyst.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(unknownDenial.IsError);
+        Assert.True(knownDenial.IsError);
+        Assert.Equal(DenyText(knownDenial), DenyText(unknownDenial));
     }
 
     [Fact]
