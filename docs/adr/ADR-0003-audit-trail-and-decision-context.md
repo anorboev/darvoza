@@ -1,7 +1,7 @@
 # ADR-0003 — Audit trail: outermost decorator + ambient decision context
 
 **Status:** Accepted · 2026-06-18 (A01-T4).
-**Context source:** task `_cc-tasks/05-audit-logging.md`; builds on ADR-0002.
+**Context source:** internal planning-workspace task 05 (audit logging); builds on ADR-0002.
 **Binding on:** A01-T4 (audit), A01-T5 (demo narrative), A01-T6 (writeup).
 
 ## Context

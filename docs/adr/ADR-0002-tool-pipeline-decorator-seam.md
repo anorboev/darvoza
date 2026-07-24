@@ -1,7 +1,7 @@
 # ADR-0002 — Tool pipeline: decorator chain on a single upstream seam
 
 **Status:** Accepted · 2026-06-18 (A01-T2 PR #2 `9630daa`).
-**Context source:** `_cc-progress/decisions-and-gotchas.md` decisions #5 and #6.
+**Context source:** internal planning-workspace decisions #5 and #6.
 **Binding on:** A01-T3 (policy), A01-T4 (audit).
 
 ## Context

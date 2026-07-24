@@ -149,8 +149,8 @@ The demo shows the same write tool (`wit_create_work_item`) **denied for a read-
 allowed for an engineer** — each producing exactly one audit record — against a real Azure DevOps org.
 
 - [`demo/RUNBOOK.md`](demo/RUNBOOK.md) — the full guided walkthrough (~15 min from a fresh clone).
-- [`demo/DEMO-RUN-SHEET.md`](demo/DEMO-RUN-SHEET.md) + [`demo/demo-oneclick.ps1`](demo/demo-oneclick.ps1) —
-  the record-ready shot sequence and the one-shot prep script.
+- [`demo/demo-oneclick.ps1`](demo/demo-oneclick.ps1) — one-shot prep script: loads the gitignored
+  `.env`, pins policy/audit paths, opens the audit-tail window, and starts the gateway.
 - [`demo/tools/RogueCaller`](demo/tools/RogueCaller) — a deliberately *impolite* MCP client. Because the
   gateway filters `tools/list` per role, a **correct** client never even attempts a disallowed call —
   so the call-level deny was unobservable from any well-behaved client. The rogue caller skips

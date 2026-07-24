@@ -18,12 +18,9 @@ policy.yaml
 /audit/
 *.jsonl
 
-# Cowork↔CC loop config is version-controlled for this repo.
-# (Overrides the global ~/.gitignore_global which ignores .claude/ and .claude/**.)
-!.claude/
-!.claude/**
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
+# Local agent/workflow config — machine-specific, not part of the public repo.
+.claude/
+/CLAUDE.md
 
 # Auto-generated session handoff snapshots (regenerated every session; not deliverables).
 # Real committed docs (e.g. the A01-T6 writeup) still live elsewhere under docs/.
