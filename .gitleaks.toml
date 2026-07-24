@@ -1,0 +1,17 @@
+# Darvoza gitleaks configuration — default rules plus a narrow allowlist.
+#
+# The only allowlisted strings are the ILLUSTRATIVE audit-fingerprint values used in the docs'
+# JSONL samples (README.md "Audit trail" section, demo/RUNBOOK.md step 4). They are documented
+# placeholders ("your run produces different digests"), not secrets — but at 16 hex chars they
+# pattern-match the generic-api-key rule. Keep this list exact-value; do NOT widen it to a hex
+# pattern, or the scan would stop catching real leaked digest-shaped credentials.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Illustrative fingerprint examples in committed docs"
+regexes = [
+  '''a1b2c3d4e5f60718''',
+  '''e5f6a7b8c9d0a1b2''',
+]
