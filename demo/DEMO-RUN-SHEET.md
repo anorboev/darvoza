@@ -11,7 +11,9 @@ Target on-camera length: **2.5–4 min**. One linear pass, no voice. Captions ge
 Secrets rule: **PAT, both key values, and `.env` never appear on screen.**
 Much of this is already true from the 2026-07-22 pre-flight session (connectors configured + working).
 
-- [ ] Rogue-caller dry run **first** (it reads the repo-root `.env` itself):
+- [ ] Rogue-caller dry run **first** (it reads the repo-root `.env` itself; needs a gateway
+      already up — e.g. still running from a previous session, else it exits 2 with
+      connection-refused and you dry-run during Section B instead):
       `dotnet run --project demo\tools\RogueCaller` → expect the DENY (exit 1). Do this *before*
       the pre-clear so its audit line gets wiped with the rest.
 - [ ] **Path A (one-click):** run `demo\demo-oneclick.ps1` from the repo root — it loads secrets
