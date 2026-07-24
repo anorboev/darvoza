@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
 
 namespace Darvoza.Gateway.Tests.E2E;
 
@@ -114,6 +115,60 @@ public sealed class LivePipelineE2ETests
     }
 
     [Fact]
+    public async Task Unknown_key_is_denied_with_one_audit_record_and_upstream_is_never_called()
+    {
+        // T6b (G-10 #2): an unknown-but-present key is the probe case — it must deny AND leave a trail
+        // (unlike unauthenticated tools/list, which is deliberately unaudited — G-21).
+        await using var factory = new DarvozaWebAppFactory();
+        await using var client = await factory.CreateMcpClientAsync("not-a-configured-key");
+
+        var result = await client.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(result.IsError);
+        Assert.Null(factory.Upstream.LastCallParams);
+
+        var record = SingleAuditRecord(factory);
+        Assert.Equal("deny", record.GetProperty("decision").GetString());
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("caller").GetProperty("role").ValueKind);
+    }
+
+    [Fact]
+    public async Task Duplicated_key_header_is_ambiguous_and_denied()
+    {
+        // T6b: a proxy or client misconfig that duplicates X-Darvoza-Key must not half-authenticate.
+        await using var factory = new DarvozaWebAppFactory();
+        await using var client = await factory.CreateMcpClientWithHeaderValuesAsync(
+            [DarvozaWebAppFactory.EngineerKey, DarvozaWebAppFactory.EngineerKey]);
+
+        var result = await client.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(result.IsError);
+        Assert.Null(factory.Upstream.LastCallParams);
+        Assert.Equal("deny", SingleAuditRecord(factory).GetProperty("decision").GetString());
+    }
+
+    [Fact]
+    public async Task Denial_text_is_identical_for_unknown_key_and_known_key_denied_tool()
+    {
+        // T6b info-leak check: the deny result must not let a caller distinguish "my key is unknown"
+        // from "my key is known but this tool is denied" — either would confirm key validity.
+        await using var factory = new DarvozaWebAppFactory();
+
+        static string DenyText(CallToolResult result) =>
+            Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+
+        await using var unknown = await factory.CreateMcpClientAsync("not-a-configured-key");
+        var unknownDenial = await unknown.CallToolAsync(WriteTool, WorkItemArgs());
+
+        await using var analyst = await factory.CreateMcpClientAsync(DarvozaWebAppFactory.AnalystKey);
+        var knownDenial = await analyst.CallToolAsync(WriteTool, WorkItemArgs());
+
+        Assert.True(unknownDenial.IsError);
+        Assert.True(knownDenial.IsError);
+        Assert.Equal(DenyText(knownDenial), DenyText(unknownDenial));
+    }
+
+    [Fact]
     public async Task Audit_record_never_contains_the_raw_caller_key()
     {
         await using var factory = new DarvozaWebAppFactory();
@@ -122,12 +177,19 @@ public sealed class LivePipelineE2ETests
         await client.CallToolAsync(WriteTool, WorkItemArgs());
 
         var line = Assert.Single(factory.Audit.Lines);
-        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, line);   // raw key is redacted out...
-        // ...replaced by a short non-reversible fingerprint.
+        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, line);       // raw key is redacted out...
+        Assert.DoesNotContain(DarvozaWebAppFactory.FingerprintSalt, line);   // ...and the salt never leaks (T6e)
+        // ...replaced by a short non-reversible fingerprint: the truncated HMAC-SHA256 of the key under
+        // the deployment salt the factory configured (T6e — salted, so a published trail cannot be
+        // dictionary-matched against guessed keys).
         var fingerprint = SingleAuditRecord(factory)
             .GetProperty("caller").GetProperty("keyFingerprint").GetString();
-        Assert.False(string.IsNullOrEmpty(fingerprint));
-        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, fingerprint!);
+        var expected = Convert.ToHexStringLower(
+                System.Security.Cryptography.HMACSHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(DarvozaWebAppFactory.FingerprintSalt),
+                    System.Text.Encoding.UTF8.GetBytes(DarvozaWebAppFactory.EngineerKey)))
+            [..Darvoza.Gateway.Audit.CallerFingerprint.HexLength];
+        Assert.Equal(expected, fingerprint);
     }
 
     [Fact]

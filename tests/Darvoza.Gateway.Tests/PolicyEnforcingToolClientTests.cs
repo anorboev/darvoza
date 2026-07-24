@@ -1,3 +1,4 @@
+using Darvoza.Gateway.Audit;
 using Darvoza.Gateway.Configuration;
 using Darvoza.Gateway.Upstream;
 using ModelContextProtocol.Protocol;
@@ -36,7 +37,8 @@ public class PolicyEnforcingToolClientTests
         // No audit decorator in these T3-focused tests: an empty decision context (Current == null) makes
         // the decision-publish a no-op, so enforcement behavior is unchanged.
         var sut = new PolicyEnforcingToolClient(
-            inner, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey }, new AsyncLocalCallDecisionContext());
+            inner, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey },
+            new AsyncLocalCallDecisionContext(), new CallerFingerprint("test-salt"u8.ToArray()));
         return (sut, inner);
     }
 

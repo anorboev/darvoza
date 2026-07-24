@@ -34,10 +34,10 @@ using ModelContextProtocol.Client;
 // T2a (G-07): load the nearest project-root .env WITHOUT walking past the repo/solution root.
 DotEnvLoader.Load(Directory.GetCurrentDirectory());
 
-// T2c: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to `npx … <org> …`; on
-// Windows npx resolves to npx.cmd (shell), where .NET arg-escaping for batch files has known gaps.
-// This strict allowlist (no quotes/spaces/metacharacters) is therefore the LOAD-BEARING mitigation
-// for that argument-injection surface — not the OS argument escaping. Keep it strict.
+// T2c + T6a: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to the upstream
+// launch. Since A01-T6a the Windows launch goes through `node npx-cli.js` (UpstreamLaunch), so no
+// batch file (npx.cmd) ever re-parses our argv — that closed the G-10 arg-injection surface. This
+// strict allowlist (no quotes/spaces/metacharacters) stays as defense-in-depth. Keep it strict.
 var adoOrg = Environment.GetEnvironmentVariable(GatewayOptions.AdoOrgEnvVar);
 if (!GatewayOptions.IsValidAdoOrg(adoOrg))
 {
@@ -77,8 +77,12 @@ builder.Services.AddSingleton<ICallerKeyProvider, HttpHeaderCallerKeyProvider>()
 // gitignored audit/ dir (ADR-0003 / decision #6 lifecycle posture).
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ICallDecisionContext, AsyncLocalCallDecisionContext>();
-builder.Services.AddSingleton<IAuditSink>(_ =>
-    new JsonlAuditSink(GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory())));
+// T6e (G-17 #1): audit fingerprints are HMAC-SHA256 under a per-deployment salt —
+// DARVOZA_FINGERPRINT_SALT when configured (stable across restarts), else generated fresh at startup
+// (fingerprints then correlate within a run only). The salt is never logged or written to the trail.
+builder.Services.AddSingleton(new CallerFingerprint(GatewayOptions.ResolveFingerprintSalt()));
+var auditPath = GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory());
+builder.Services.AddSingleton<IAuditSink>(_ => new JsonlAuditSink(auditPath));
 
 // The decorator chain (ADR-0002): audit (T4, OUTERMOST) wraps policy (T3) wraps the concrete client.
 // Both decorators are singletons to sit cleanly under the singleton PassthroughToolHandlers (G-09 #1 —
@@ -91,7 +95,8 @@ builder.Services.AddSingleton<IUpstreamToolClient>(sp =>
             sp.GetRequiredService<McpUpstreamToolClient>(),
             sp.GetRequiredService<Policy>(),
             sp.GetRequiredService<ICallerKeyProvider>(),
-            sp.GetRequiredService<ICallDecisionContext>()),
+            sp.GetRequiredService<ICallDecisionContext>(),
+            sp.GetRequiredService<CallerFingerprint>()),
         sp.GetRequiredService<IAuditSink>(),
         sp.GetRequiredService<ICallDecisionContext>(),
         sp.GetRequiredService<TimeProvider>()));
@@ -115,6 +120,44 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 app.MapMcp();   // streamable-HTTP MCP endpoint at "/"
+
+// T6b (G-10 #2): X-Darvoza-Key is app-layer AUTHORIZATION, not transport authentication. The v1
+// deployment assumption is loopback/trusted-network; if the operator binds wider, say so loudly.
+// (Also remember G-21: unauthenticated tools/list probing leaves no audit trail in v1.)
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    // T6f (@security-reviewer MEDIUM-1): force the audit sink into existence NOW. Its ctor creates
+    // the audit directory (owner-only on Unix), so the permission check below inspects the REAL
+    // directory even on a fresh deployment — and an unusable audit path gets LOGGED at startup
+    // instead of being discovered on the first tool call. (ApplicationStarted callbacks are
+    // best-effort, not process-aborting; the hard guarantee stays the fail-closed write path in
+    // AuditingToolClient.)
+    _ = app.Services.GetRequiredService<IAuditSink>();
+
+    foreach (var url in app.Urls.Where(url => !GatewayOptions.IsLoopbackUrl(url)))
+    {
+        app.Logger.LogWarning(
+            "Darvoza is listening on non-loopback address {Url}. The X-Darvoza-Key header is " +
+            "authorization, NOT transport authentication — on an untrusted network, front the " +
+            "gateway with TLS and network-level authentication (see README, Security model).", url);
+    }
+
+    // T6f (G-17 #2): the trail carries roles/fingerprints/tool names — warn if the audit directory is
+    // readable beyond its owner. Unix only: Windows ACLs have no equally cheap+reliable check, so the
+    // Windows guidance is the icacls recipe in README/RUNBOOK (documented decision, A01-T6f).
+    if (!OperatingSystem.IsWindows())
+    {
+        var auditDir = Path.GetDirectoryName(Path.GetFullPath(auditPath));
+        if (auditDir is not null && Directory.Exists(auditDir)
+            && GatewayOptions.IsGroupOrWorldAccessible(File.GetUnixFileMode(auditDir)))
+        {
+            app.Logger.LogWarning(
+                "Audit directory {AuditDir} is accessible to group/other users. The trail exposes " +
+                "roles, key fingerprints, and tool usage — restrict it to the gateway's operator " +
+                "(chmod 700 <dir>; chmod 600 <file>). See README, Security model.", auditDir);
+        }
+    }
+});
 app.Run();
 
 // -------------------------------------------------------------------------------------------------
@@ -138,12 +181,17 @@ static StdioClientTransport BuildUpstreamTransport(string adoOrg)
         token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
     }
 
+    // T6a (G-10 #1): resolve the launch through UpstreamLaunch — `node npx-cli.js …` on Windows so no
+    // batch file re-parses argv; plain `npx` elsewhere. Package pinned to @2.7.0 (Decision #3, G-20).
+    var launch = UpstreamLaunch.Resolve(
+        adoOrg, OperatingSystem.IsWindows(), Environment.GetEnvironmentVariable, File.Exists);
+
     return new StdioClientTransport(new StdioClientTransportOptions
     {
         Name = "azure-devops-upstream",
-        Command = "npx",
-        // @azure-devops/mcp@2.7.0: org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat).
-        Arguments = ["-y", "@azure-devops/mcp", adoOrg, "--authentication", "pat"],
+        Command = launch.Command,
+        // Org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat) — env only, never argv.
+        Arguments = [.. launch.Arguments],
         EnvironmentVariables = new Dictionary<string, string?> { ["PERSONAL_ACCESS_TOKEN"] = token },
     });
 }

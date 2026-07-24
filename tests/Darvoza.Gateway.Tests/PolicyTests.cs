@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Darvoza.Gateway.Configuration;
 
 namespace Darvoza.Gateway.Tests;
@@ -55,5 +57,47 @@ public class PolicyTests
         Assert.Equal(
             ["repo_list", "wit_get_work_item"],
             TwoRolePolicy().AllowlistFor("analyst-key").OrderBy(name => name));
+    }
+
+    [Fact]
+    public void AllowlistForRole_matches_AllowlistFor_without_a_second_key_scan()
+    {
+        // The role-keyed overload exists so CallToolAsync pays the constant-time key scan ONCE:
+        // resolve the role, then consult the allow-list by role. Same answers as the key-keyed path.
+        var policy = TwoRolePolicy();
+
+        Assert.Equal(policy.AllowlistFor("analyst-key"), policy.AllowlistForRole("analyst"));
+        Assert.Equal(policy.AllowlistFor("engineer-key"), policy.AllowlistForRole("engineer"));
+        Assert.Empty(policy.AllowlistForRole(null));
+        Assert.Empty(policy.AllowlistForRole("not-a-role"));
+    }
+
+    [Fact]
+    public void Keys_are_stored_as_fixed_width_sha256_digests_not_raw_strings()
+    {
+        // T6c (G-13 #1): RoleForKey must not compare raw key strings — the key is hashed to a
+        // fixed-width SHA-256 digest at construction and lookups run CryptographicOperations
+        // .FixedTimeEquals over every stored digest. Pin the storage half of that contract:
+        // exactly one 32-byte digest per caller, each the SHA-256 of its key.
+        var entries = TwoRolePolicy().DigestEntries;
+
+        Assert.Equal(2, entries.Count);
+        Assert.All(entries, e => Assert.Equal(32, e.Digest.Length));
+        Assert.Contains(entries, e =>
+            e.Digest.SequenceEqual(SHA256.HashData(Encoding.UTF8.GetBytes("analyst-key")))
+            && e.Role == "analyst");
+        Assert.Contains(entries, e =>
+            e.Digest.SequenceEqual(SHA256.HashData(Encoding.UTF8.GetBytes("engineer-key")))
+            && e.Role == "engineer");
+    }
+
+    [Fact]
+    public void A_key_differing_only_in_a_trailing_byte_is_unknown()
+    {
+        // Guards the digest path against prefix-match shortcuts: near-miss keys resolve to no role.
+        var policy = TwoRolePolicy();
+        Assert.Null(policy.RoleForKey("analyst-key2"));
+        Assert.Null(policy.RoleForKey("analyst-ke"));
+        Assert.Null(policy.RoleForKey(""));
     }
 }

@@ -20,7 +20,9 @@ public sealed partial class GatewayOptions
     /// <summary>Optional environment variable overriding the policy file path (A01-T3).</summary>
     public const string PolicyPathEnvVar = "DARVOZA_POLICY_PATH";
 
-    /// <summary>Default committed policy file name (no secrets — keyEnv names env vars, not key values).</summary>
+    /// <summary>Default policy file name the gateway resolves to — a local, gitignored copy of the
+    /// committed <c>policy.example.yaml</c> template (no secrets either way: keyEnv names env vars,
+    /// not key values).</summary>
     public const string DefaultPolicyFileName = "policy.yaml";
 
     /// <summary>Gitignored local-override policy file; takes precedence over the committed default.</summary>
@@ -34,6 +36,9 @@ public sealed partial class GatewayOptions
 
     /// <summary>Default audit-trail file name within <see cref="DefaultAuditDirName"/>.</summary>
     public const string DefaultAuditFileName = "darvoza-audit.jsonl";
+
+    /// <summary>Optional environment variable configuring the audit-fingerprint salt (A01-T6e).</summary>
+    public const string FingerprintSaltEnvVar = "DARVOZA_FINGERPRINT_SALT";
 
     /// <summary>The validated Azure DevOps organization name (positional arg to the upstream server).</summary>
     public required string AdoOrg { get; init; }
@@ -69,6 +74,56 @@ public sealed partial class GatewayOptions
 
         return Path.Combine(contentRoot, DefaultAuditDirName, DefaultAuditFileName);
     }
+
+    /// <summary>
+    /// Resolves the audit-fingerprint salt (A01-T6e, G-17 #1). A configured
+    /// <see cref="FingerprintSaltEnvVar"/> (UTF-8 bytes of its value) gives fingerprints that are stable
+    /// across restarts; otherwise a fresh 32-byte random salt is generated, so fingerprints correlate
+    /// within a run only. The salt is never logged and never written to the audit trail.
+    /// </summary>
+    /// <param name="getEnv">Environment reader (injectable for tests); defaults to the process environment.</param>
+    /// <param name="randomBytes">Random-byte source (injectable for tests); defaults to a CSPRNG.</param>
+    public static byte[] ResolveFingerprintSalt(
+        Func<string, string?>? getEnv = null,
+        Func<int, byte[]>? randomBytes = null)
+    {
+        getEnv ??= Environment.GetEnvironmentVariable;
+        randomBytes ??= System.Security.Cryptography.RandomNumberGenerator.GetBytes;
+
+        var configured = getEnv(FingerprintSaltEnvVar);
+        return string.IsNullOrWhiteSpace(configured)
+            ? randomBytes(32)
+            : System.Text.Encoding.UTF8.GetBytes(configured);
+    }
+
+    /// <summary>
+    /// True only for an http/https URL whose host is definitively loopback (A01-T6b). Used by the
+    /// startup warning: <c>X-Darvoza-Key</c> is app-layer authorization, NOT transport authentication,
+    /// so binding beyond loopback deserves an explicit operator warning. Fail-closed classification:
+    /// anything unparseable, wildcard (<c>0.0.0.0</c>, <c>[::]</c>, <c>+</c>, <c>*</c>), non-HTTP, or
+    /// empty-hosted counts as NON-loopback. (Per G-22, <see cref="Uri.IsLoopback"/> alone is a trap —
+    /// it returns true for empty-host URIs — hence the scheme + explicit-host checks first.)
+    /// </summary>
+    public static bool IsLoopbackUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        if (uri.Scheme is not ("http" or "https") || string.IsNullOrEmpty(uri.Host))
+            return false;
+        if (uri.Host is "0.0.0.0" or "[::]" or "::")
+            return false;
+
+        return uri.IsLoopback;
+    }
+
+    /// <summary>
+    /// True when a Unix mode grants ANY group/other access (A01-T6f) — used by the startup tripwire
+    /// that warns when the audit directory is readable beyond its owner. Windows ACLs have no cheap
+    /// equivalent check; there the guidance is documentation (<c>icacls</c> recipe in README/RUNBOOK).
+    /// </summary>
+    public static bool IsGroupOrWorldAccessible(UnixFileMode mode) =>
+        (mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+               | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0;
 
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
     // leading/trailing hyphen, no whitespace/slashes/scheme. Bounds length to a sane 64 chars.

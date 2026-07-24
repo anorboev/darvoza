@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace Darvoza.Gateway.Configuration;
 
 /// <summary>
@@ -15,7 +18,12 @@ public sealed class Policy
 {
     private static readonly IReadOnlySet<string> Empty = new HashSet<string>();
 
-    private readonly IReadOnlyDictionary<string, string> _keyToRole;
+    // A01-T6c (G-13 #1): caller keys are hashed to fixed-width SHA-256 digests at construction and the
+    // raw strings are NOT retained here. Lookups compare the presented key's digest against EVERY entry
+    // with CryptographicOperations.FixedTimeEquals (no early exit), so the comparison time does not
+    // depend on how much of a guessed key matches — closing the timing oracle the old dictionary
+    // lookup leaked.
+    private readonly (byte[] Digest, string Role)[] _entries;
     private readonly IReadOnlyDictionary<string, IReadOnlySet<string>> _roleAllowlists;
 
     /// <param name="keyToRole">Resolved caller secret-key value → role name.</param>
@@ -24,29 +32,50 @@ public sealed class Policy
         IReadOnlyDictionary<string, string> keyToRole,
         IReadOnlyDictionary<string, IReadOnlySet<string>> roleAllowlists)
     {
-        _keyToRole = keyToRole;
+        _entries = keyToRole.Select(pair => (KeyDigest(pair.Key), pair.Value)).ToArray();
         _roleAllowlists = roleAllowlists;
     }
 
+    /// <summary>Digest storage seam for tests: one 32-byte SHA-256 digest per caller, no raw keys.</summary>
+    internal IReadOnlyList<(byte[] Digest, string Role)> DigestEntries => _entries;
+
+    /// <summary>SHA-256 over the key's UTF-8 bytes — the fixed-width form every comparison uses.</summary>
+    internal static byte[] KeyDigest(string key) => SHA256.HashData(Encoding.UTF8.GetBytes(key));
+
     /// <summary>Resolves a caller key to its role, or <c>null</c> if the key is missing/unknown.</summary>
-    /// <remarks>
-    /// The dictionary lookup is not constant-time, so it leaks a small timing signal on the caller key.
-    /// Acceptable while the front leg is loopback/trusted-network only (repo is private until A01-T6);
-    /// a fixed-time comparison (or hashing the key to a fixed-width digest first) is tracked for T6b,
-    /// alongside front-leg transport authentication (G-10).
-    /// </remarks>
-    public string? RoleForKey(string? callerKey) =>
-        callerKey is not null && _keyToRole.TryGetValue(callerKey, out var role) ? role : null;
+    public string? RoleForKey(string? callerKey)
+    {
+        if (callerKey is null)
+        {
+            return null;
+        }
+
+        var probe = KeyDigest(callerKey);
+        string? role = null;
+        foreach (var (digest, entryRole) in _entries)
+        {
+            // Scan every entry even after a match: per-key work stays independent of the input.
+            if (CryptographicOperations.FixedTimeEquals(probe, digest))
+            {
+                role = entryRole;
+            }
+        }
+
+        return role;
+    }
 
     /// <summary>
     /// The set of tool names the given caller key is permitted to use. An unknown/missing key (or a role
     /// with no allow-list) yields the empty set — deny-by-default.
     /// </summary>
-    public IReadOnlySet<string> AllowlistFor(string? callerKey)
-    {
-        var role = RoleForKey(callerKey);
-        return role is not null && _roleAllowlists.TryGetValue(role, out var allow) ? allow : Empty;
-    }
+    public IReadOnlySet<string> AllowlistFor(string? callerKey) => AllowlistForRole(RoleForKey(callerKey));
+
+    /// <summary>
+    /// The allow-list for an already-resolved role (empty for a null/unknown role). Lets a caller that
+    /// has already paid the constant-time key scan of <see cref="RoleForKey"/> avoid a second one.
+    /// </summary>
+    public IReadOnlySet<string> AllowlistForRole(string? role) =>
+        role is not null && _roleAllowlists.TryGetValue(role, out var allow) ? allow : Empty;
 
     /// <summary>True only if the caller key resolves to a role whose allow-list contains the tool.</summary>
     public bool IsAllowed(string? callerKey, string toolName) =>
