@@ -60,6 +60,19 @@ public class PolicyTests
     }
 
     [Fact]
+    public void AllowlistForRole_matches_AllowlistFor_without_a_second_key_scan()
+    {
+        // The role-keyed overload exists so CallToolAsync pays the constant-time key scan ONCE:
+        // resolve the role, then consult the allow-list by role. Same answers as the key-keyed path.
+        var policy = TwoRolePolicy();
+
+        Assert.Equal(policy.AllowlistFor("analyst-key"), policy.AllowlistForRole("analyst"));
+        Assert.Equal(policy.AllowlistFor("engineer-key"), policy.AllowlistForRole("engineer"));
+        Assert.Empty(policy.AllowlistForRole(null));
+        Assert.Empty(policy.AllowlistForRole("not-a-role"));
+    }
+
+    [Fact]
     public void Keys_are_stored_as_fixed_width_sha256_digests_not_raw_strings()
     {
         // T6c (G-13 #1): RoleForKey must not compare raw key strings — the key is hashed to a

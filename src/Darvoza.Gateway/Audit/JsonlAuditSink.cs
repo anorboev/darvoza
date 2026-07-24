@@ -22,13 +22,24 @@ public sealed class JsonlAuditSink : IAuditSink, IAsyncDisposable
     private volatile bool _disposed;
     private int _disposeGuard; // 0 = not yet disposed; set once via Interlocked so DisposeAsync is idempotent
 
-    /// <param name="path">The audit file path. Its directory is created if it does not exist.</param>
+    /// <param name="path">The audit file path. Its directory is created if it does not exist —
+    /// owner-only (0700) on Unix, so a fresh deployment is never born group/world-readable.</param>
     public JsonlAuditSink(string path)
     {
         _path = path;
         var dir = Path.GetDirectoryName(Path.GetFullPath(path));
-        if (!string.IsNullOrEmpty(dir))
-            Directory.CreateDirectory(dir);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+        {
+            // T6f (@security-reviewer MEDIUM-1): under the default umask a plain CreateDirectory is
+            // commonly 0755 on Linux — the trail would start life world-readable. Windows inherits
+            // parent ACLs (no cheap per-dir mode; icacls guidance in README/RUNBOOK). A pre-existing
+            // directory is left untouched; the startup tripwire in Program warns if its bits are open.
+            if (OperatingSystem.IsWindows())
+                Directory.CreateDirectory(dir);
+            else
+                Directory.CreateDirectory(
+                    dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     public async ValueTask WriteAsync(string jsonLine, CancellationToken ct)

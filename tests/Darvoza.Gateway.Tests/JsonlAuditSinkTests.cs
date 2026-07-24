@@ -20,6 +20,19 @@ public sealed class JsonlAuditSinkTests : IDisposable
     }
 
     [Fact]
+    public async Task Constructor_creates_a_missing_audit_directory()
+    {
+        // T6f: the ctor (not the first write) creates the directory — Program force-resolves the sink
+        // at ApplicationStarted so the permission tripwire inspects a real directory even on a fresh
+        // deployment. (On Unix it is created owner-only; the mode itself is untestable on Windows.)
+        Assert.False(Directory.Exists(_dir));
+
+        await using var sink = new JsonlAuditSink(AuditPath);
+
+        Assert.True(Directory.Exists(_dir));
+    }
+
+    [Fact]
     public async Task Appends_each_line_newline_terminated_in_order()
     {
         await using (var sink = new JsonlAuditSink(AuditPath))

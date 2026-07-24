@@ -55,6 +55,10 @@ public static class UpstreamLaunch
         if (!string.IsNullOrWhiteSpace(configured))
             return fileExists(configured) ? configured : null;
 
+        // Note a benign asymmetry: the launch command is the bare "node" (OS PATH resolution at spawn
+        // time), while npx-cli.js is taken from the FIRST PATH dir containing node.exe + the adjacent
+        // npm layout. With two node installs on PATH these could differ — same trust boundary either
+        // way (an attacker writing an early PATH dir already owns the node binary), so no new surface.
         foreach (var dir in (getEnv("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             if (!fileExists(Path.Combine(dir, "node.exe")))

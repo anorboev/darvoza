@@ -126,6 +126,12 @@ app.MapMcp();   // streamable-HTTP MCP endpoint at "/"
 // (Also remember G-21: unauthenticated tools/list probing leaves no audit trail in v1.)
 app.Lifetime.ApplicationStarted.Register(() =>
 {
+    // T6f (@security-reviewer MEDIUM-1): force the audit sink into existence NOW. Its ctor creates
+    // the audit directory (owner-only on Unix), so the permission check below inspects the REAL
+    // directory even on a fresh deployment — and an unusable audit path surfaces at startup rather
+    // than on the first tool call (fail-fast posture).
+    _ = app.Services.GetRequiredService<IAuditSink>();
+
     foreach (var url in app.Urls.Where(url => !GatewayOptions.IsLoopbackUrl(url)))
     {
         app.Logger.LogWarning(

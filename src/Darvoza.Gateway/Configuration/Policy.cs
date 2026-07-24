@@ -68,11 +68,14 @@ public sealed class Policy
     /// The set of tool names the given caller key is permitted to use. An unknown/missing key (or a role
     /// with no allow-list) yields the empty set — deny-by-default.
     /// </summary>
-    public IReadOnlySet<string> AllowlistFor(string? callerKey)
-    {
-        var role = RoleForKey(callerKey);
-        return role is not null && _roleAllowlists.TryGetValue(role, out var allow) ? allow : Empty;
-    }
+    public IReadOnlySet<string> AllowlistFor(string? callerKey) => AllowlistForRole(RoleForKey(callerKey));
+
+    /// <summary>
+    /// The allow-list for an already-resolved role (empty for a null/unknown role). Lets a caller that
+    /// has already paid the constant-time key scan of <see cref="RoleForKey"/> avoid a second one.
+    /// </summary>
+    public IReadOnlySet<string> AllowlistForRole(string? role) =>
+        role is not null && _roleAllowlists.TryGetValue(role, out var allow) ? allow : Empty;
 
     /// <summary>True only if the caller key resolves to a role whose allow-list contains the tool.</summary>
     public bool IsAllowed(string? callerKey, string toolName) =>

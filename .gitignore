@@ -8,6 +8,7 @@ obj/
 .env
 *.env
 .env.*
+!.env.example
 appsettings.*.local.json
 policy.local.yaml
 policy.yaml

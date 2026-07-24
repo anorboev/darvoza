@@ -20,7 +20,9 @@ public sealed partial class GatewayOptions
     /// <summary>Optional environment variable overriding the policy file path (A01-T3).</summary>
     public const string PolicyPathEnvVar = "DARVOZA_POLICY_PATH";
 
-    /// <summary>Default committed policy file name (no secrets — keyEnv names env vars, not key values).</summary>
+    /// <summary>Default policy file name the gateway resolves to — a local, gitignored copy of the
+    /// committed <c>policy.example.yaml</c> template (no secrets either way: keyEnv names env vars,
+    /// not key values).</summary>
     public const string DefaultPolicyFileName = "policy.yaml";
 
     /// <summary>Gitignored local-override policy file; takes precedence over the committed default.</summary>
