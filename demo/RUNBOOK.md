@@ -61,6 +61,13 @@ Why each step:
 - **`DARVOZA_KEY_ANALYST` / `DARVOZA_KEY_ENGINEER`** — the policy file names these env vars (`keyEnv`); the
   secret **values live in the environment, never in the file**. Each value is the `X-Darvoza-Key` a caller
   presents. An unset/empty key env var is a hard startup failure (never a silently-disabled caller).
+- **Audit-directory permissions (T6f)** — the trail never contains raw secrets, but it does expose
+  roles, key fingerprints, and tool usage, so on any machine other people can log into, restrict the
+  audit dir to the operator before running:
+  `chmod 700 audit && touch audit/darvoza-audit.jsonl && chmod 600 audit/darvoza-audit.jsonl` (Unix —
+  the gateway warns at startup if the dir is group/world-accessible), or on Windows
+  `icacls audit /inheritance:r /grant:r "$env:USERNAME:(OI)(CI)F"` (removes inherited ACLs; grants only
+  you). For the single-operator demo laptop this is optional; for any shared host it is not.
 
 <details>
 <summary><b>PowerShell equivalents</b> (Windows — <code>export</code> is a bash-ism and will not work)</summary>

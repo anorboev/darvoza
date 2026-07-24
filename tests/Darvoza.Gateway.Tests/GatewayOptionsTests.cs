@@ -99,6 +99,21 @@ public class GatewayOptionsTests
         Assert.True(GatewayOptions.IsLoopbackUrl(url));
     }
 
+    // A01-T6f — the Unix audit-dir permission tripwire: any group/other access bit on the audit
+    // directory means a local reader could read (or tamper with the visibility of) the trail.
+    [Theory]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, false)] // 700 — fine
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.GroupRead, true)]                                                            // 740 — group can read
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.OtherRead | UnixFileMode.OtherExecute, true)]                                // 705 — world can read
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.GroupWrite, true)]                                                           // group can write
+    public void IsGroupOrWorldAccessible_flags_any_non_owner_access(UnixFileMode mode, bool tooOpen)
+    {
+        Assert.Equal(tooOpen, GatewayOptions.IsGroupOrWorldAccessible(mode));
+    }
+
     [Theory]
     [InlineData("http://0.0.0.0:5000")]      // wildcard IPv4
     [InlineData("http://[::]:5000")]         // wildcard IPv6

@@ -130,8 +130,13 @@ record cannot be written, the call **fails closed** — no unaudited success is 
 On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky message, and `upstream` is `null`.
 
 > The trail records roles, key fingerprints, and tool names — keep the audit directory on
-> operator-private storage (the file is opened `FileShare.Read` so it can be tailed live). Hardened
-> per-deployment ACLs and multi-tenant isolation are out of v1 scope.
+> operator-private storage (the file is opened `FileShare.Read` so it can be tailed live, so file
+> ACLs are the isolation mechanism, not sharing flags). Restrict it to the operating user:
+> `chmod 700 audit && chmod 600 audit/darvoza-audit.jsonl` on Unix — the gateway warns at startup if
+> the directory is group/world-accessible — or
+> `icacls audit /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"` on Windows (no cheap reliable ACL
+> check exists there, so Windows hardening is guidance, not a runtime tripwire). Multi-tenant
+> isolation remains out of v1 scope.
 
 ## Scope (v1 / MVP)
 

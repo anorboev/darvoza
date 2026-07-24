@@ -81,8 +81,8 @@ builder.Services.AddSingleton<ICallDecisionContext, AsyncLocalCallDecisionContex
 // DARVOZA_FINGERPRINT_SALT when configured (stable across restarts), else generated fresh at startup
 // (fingerprints then correlate within a run only). The salt is never logged or written to the trail.
 builder.Services.AddSingleton(new CallerFingerprint(GatewayOptions.ResolveFingerprintSalt()));
-builder.Services.AddSingleton<IAuditSink>(_ =>
-    new JsonlAuditSink(GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory())));
+var auditPath = GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory());
+builder.Services.AddSingleton<IAuditSink>(_ => new JsonlAuditSink(auditPath));
 
 // The decorator chain (ADR-0002): audit (T4, OUTERMOST) wraps policy (T3) wraps the concrete client.
 // Both decorators are singletons to sit cleanly under the singleton PassthroughToolHandlers (G-09 #1 —
@@ -132,6 +132,22 @@ app.Lifetime.ApplicationStarted.Register(() =>
             "Darvoza is listening on non-loopback address {Url}. The X-Darvoza-Key header is " +
             "authorization, NOT transport authentication — on an untrusted network, front the " +
             "gateway with TLS and network-level authentication (see README, Security model).", url);
+    }
+
+    // T6f (G-17 #2): the trail carries roles/fingerprints/tool names — warn if the audit directory is
+    // readable beyond its owner. Unix only: Windows ACLs have no equally cheap+reliable check, so the
+    // Windows guidance is the icacls recipe in README/RUNBOOK (documented decision, A01-T6f).
+    if (!OperatingSystem.IsWindows())
+    {
+        var auditDir = Path.GetDirectoryName(Path.GetFullPath(auditPath));
+        if (auditDir is not null && Directory.Exists(auditDir)
+            && GatewayOptions.IsGroupOrWorldAccessible(File.GetUnixFileMode(auditDir)))
+        {
+            app.Logger.LogWarning(
+                "Audit directory {AuditDir} is accessible to group/other users. The trail exposes " +
+                "roles, key fingerprints, and tool usage — restrict it to the gateway's operator " +
+                "(chmod 700 <dir>; chmod 600 <file>). See README, Security model.", auditDir);
+        }
     }
 });
 app.Run();

@@ -114,6 +114,15 @@ public sealed partial class GatewayOptions
         return uri.IsLoopback;
     }
 
+    /// <summary>
+    /// True when a Unix mode grants ANY group/other access (A01-T6f) — used by the startup tripwire
+    /// that warns when the audit directory is readable beyond its owner. Windows ACLs have no cheap
+    /// equivalent check; there the guidance is documentation (<c>icacls</c> recipe in README/RUNBOOK).
+    /// </summary>
+    public static bool IsGroupOrWorldAccessible(UnixFileMode mode) =>
+        (mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+               | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0;
+
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
     // leading/trailing hyphen, no whitespace/slashes/scheme. Bounds length to a sane 64 chars.
     [GeneratedRegex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$")]
