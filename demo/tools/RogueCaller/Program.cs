@@ -17,6 +17,7 @@
 
 using System.Globalization;
 using System.Text;
+using Darvoza.Gateway.Configuration;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -106,10 +107,17 @@ if (!endpoint.IsLoopback)
     return 2;
 }
 
+// The gateway auto-loads the repo-root .env; do the same here (the LINKED DotEnvLoader source, so the
+// two can never drift) — the rogue caller then works from ANY shell, not just the one that exported the
+// keys. Set-if-missing semantics mean a shell-exported key still wins over the .env value.
+var envFile = DotEnvLoader.Load(Directory.GetCurrentDirectory());
+
 var key = Environment.GetEnvironmentVariable(keyEnv);
 if (string.IsNullOrWhiteSpace(key))
 {
-    Console.Error.WriteLine($"{keyEnv} is not set. Export it in THIS shell (the same one that ran the gateway's setup).");
+    Console.Error.WriteLine(envFile is null
+        ? $"{keyEnv} is not set and no .env was found walking up from the current directory. Export it, or add it to the repo-root .env."
+        : $"{keyEnv} is not set in this shell or in the .env that was loaded ({envFile}).");
     return 2;
 }
 

@@ -8,13 +8,20 @@
     <RootNamespace>Darvoza.Demo.RogueCaller</RootNamespace>
     <AssemblyName>RogueCaller</AssemblyName>
     <!-- Manual demo utility: it is NOT a test project and has no reference to the gateway. It talks to a
-         running gateway over the wire like any other MCP client, so `dotnet test` never touches it. -->
+         running gateway over the wire like any other MCP client, so `dotnet test` never touches it.
+         (The DotEnvLoader ItemGroup below is a shared SOURCE link, not a project reference.) -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Client half of the official C# MCP SDK, pinned to the same 1.4.0 the gateway uses. -->
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared SOURCE link, not a project reference (the wire-only stance above still holds): reuse the
+         gateway's bounded .env loader so both processes resolve the demo keys identically. -->
+    <Compile Include="..\..\..\src\Darvoza.Gateway\Configuration\DotEnvLoader.cs" Link="DotEnvLoader.cs" />
   </ItemGroup>
 
 </Project>

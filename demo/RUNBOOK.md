@@ -4,7 +4,9 @@
 **the same write tool denied for a read-only analyst and allowed for an engineer, each producing one
 audit record** — in **under 15 minutes**.
 
-This is the runbook the [shot-list](SHOTLIST.md) records against. The automated test
+This is the runbook the recording docs record against — the current one is the
+[DEMO-RUN-SHEET](DEMO-RUN-SHEET.md) (v2, silent take + captions, one-click prep); the earlier
+[shot-list](SHOTLIST.md) keeps the per-shot rationale and caption text it builds on. The automated test
 `tests/Darvoza.Gateway.Tests/E2E/LivePipelineE2ETests.cs` proves the same pipeline in CI with a fake
 upstream; this runbook drives the **real** Azure DevOps org.
 
@@ -113,12 +115,14 @@ note below.
 > demo. The PAT is never printed.
 >
 > 🧹 **Teardown — do this after the last take, before publishing anything:**
-> 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens. It is the only real
->    credential in the demo, and A01-T6 publishes the repo and the video.
-> 2. **Discard both caller keys** — close the shell (they were never written to a file), delete the two
->    server entries from the client config, and **clear the clipboard and its history**
->    (`Set-Clipboard -Value ' '` / `echo -n | clip.exe`, then Win+V → Clear all). The clipboard survives
->    the shell you just closed. They are live keys until all of that is done.
+> 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens, and delete its line
+>    from the repo-root `.env` if you keep one there. It is the only real credential in the demo, and
+>    A01-T6 publishes the repo and the video.
+> 2. **Discard both caller keys** — if they live in the gitignored repo-root `.env` (the one-click
+>    script's workflow), rotate or delete those `DARVOZA_KEY_*` lines; then close the demo shells,
+>    delete the two server entries from the client config, and **clear the clipboard and its history**
+>    (`Set-Clipboard -Value ' '` / `echo -n | clip.exe`, then Win+V → Clear all). The clipboard and the
+>    `.env` file both survive the shell you just closed. They are live keys until all of that is done.
 > 3. **Re-watch the footage for leaks** before upload: scrollback, the client config pane, and any frame
 >    where a key or the PAT could have been on screen. The audit trail itself is safe to show — it carries
 >    only a role and a non-reversible fingerprint, never the key.
@@ -219,7 +223,8 @@ issues `tools/call` for a tool it was never offered — exactly what a compromis
 would do. Deny-by-default is enforced on the call as well as on the listing, so it is denied and logged.
 
 ```bash
-# same shell as step 1 (it reads the key from the environment):
+# any shell: it reads the key from the environment, falling back to the repo-root .env
+# (the same bounded DotEnvLoader the gateway uses, source-linked — an exported var still wins):
 dotnet run --project demo/tools/RogueCaller
 ```
 
@@ -269,7 +274,7 @@ the day, shots 4a/4b and 5 can be produced entirely from two terminal invocation
 | Symptom | Cause / fix |
 |---|---|
 | **Connector connects but shows _no tools_** | The key isn't reaching the gateway, or its value isn't in the gateway's environment — so the caller resolves to no role and deny-by-default filters `tools/list` to empty. **This is the gateway working correctly against an unauthenticated caller**, not a bug. Checklist: (1) the `keyEnv` vars were exported in the **same shell** that ran `dotnet run` — PowerShell `$env:`, *not* bash `export`, and a new terminal window does not inherit them; (2) the client's `headers` map spells `X-Darvoza-Key` exactly, with no stray spaces around the value; (3) the gateway was started **before** the client connected (it reads the key env vars once, at startup). Confirm with the rogue caller (step 5) — it prints which env var it read. **Note for operators:** an unauthorized `tools/list` currently leaves **no audit record** — the audit decorator wraps `CallToolAsync` only, by design (A01-T4 scope), so a caller probing with guessed keys is indistinguishable from this mistake. That is acceptable only while the front leg is loopback/trusted-network; it is part of the **G-10 / A01-T6b** front-leg-authentication gate. Tool *calls* are audited 100%, allowed and denied. |
-| Rogue caller exits with `DARVOZA_KEY_… is not set` | Same root cause as above, one layer earlier: the script runs in a shell that never received the export. Re-run step 1 in *that* shell. |
+| Rogue caller exits with `DARVOZA_KEY_… is not set` | The var is neither exported in this shell nor present in a repo-root `.env` (the caller loads `.env` with the same bounded loader as the gateway; its error message says whether a `.env` was found). Add the key to `.env`, or export it in this shell. |
 | Gateway exits on startup with a policy error | You skipped `cp policy.example.yaml policy.yaml`, forgot `DARVOZA_POLICY_PATH` (without it the gateway looks in `src/Darvoza.Gateway/`, not the repo root), or a `keyEnv` var (`DARVOZA_KEY_ANALYST`/`ENGINEER`) is unset/empty. |
 | Gateway exits with an upstream connection error | `ADO_ORG` wrong or `npx` can't launch. Note: the fail-fast start validates the local MCP handshake only — a bad PAT does **not** fail here; it surfaces on the first real call. |
 | Every call is denied, even reads (audit shows `"caller":{"role":null,…}`) | The client isn't sending `X-Darvoza-Key`, or the key doesn't match the env value — watch for an invisible trailing `\r` if the keys were sourced from a CRLF-ended file. Re-check the `headers` map. |
