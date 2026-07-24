@@ -1,5 +1,9 @@
 # Darvoza
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0_(LTS)-512BD4.svg)](https://dotnet.microsoft.com/)
+[![MCP C# SDK](https://img.shields.io/badge/MCP_C%23_SDK-1.4.0-blue.svg)](https://www.nuget.org/packages/ModelContextProtocol)
+
 **An MCP governance gateway for Azure DevOps, in .NET — for any MCP client.**
 Per-role tool policy, deny-by-default, full audit trail.
 
@@ -10,10 +14,10 @@ Per-role tool policy, deny-by-default, full audit trail.
 > Because Darvoza is itself a standard streamable-HTTP MCP server, any MCP client consumes it
 > identically — examples below lead with Claude.
 
-> **Status:** 🔵 build in progress (Sprint A; A01-T1 spike + A01-T2 skeleton + A01-T3 policy +
-> A01-T4 audit merged, A01-T5 demo assets complete — only the recording itself is outstanding;
-> ship target ~2026-07-27). This is a focused open-source *reference implementation* — consulting
-> proof-of-work, not a product launch.
+> **Status:** ✅ v1 complete — gateway, policy engine, audit trail, demo assets, and the pre-publish
+> security pass (A01-T6) have all landed. This is a focused open-source *reference implementation* —
+> consulting proof-of-work, not a product launch. See the [demo](#demo) and the
+> [security model](#security-model).
 
 ## Why this exists
 
@@ -64,9 +68,7 @@ dotnet run --project src/Darvoza.Gateway        # listens on http://localhost:50
 # …sending its per-caller key as the  X-Darvoza-Key  request header
 ```
 
-> **Demo:** for a guided two-role walkthrough (analyst write **denied** + audited, engineer write
-> **allowed** + audited, then the resulting JSONL) against a free Azure DevOps org, follow
-> [`demo/RUNBOOK.md`](demo/RUNBOOK.md).
+> **Demo:** see the [Demo](#demo) section below for the two-role walkthrough and video.
 
 > **PAT handling:** the upstream `@azure-devops/mcp` `pat` mode reads `PERSONAL_ACCESS_TOKEN`
 > whose value must be **base64 of `email:pat`**. Darvoza accepts either: a raw PAT in
@@ -138,14 +140,39 @@ On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky messa
 > check exists there, so Windows hardening is guidance, not a runtime tripwire). Multi-tenant
 > isolation remains out of v1 scope.
 
+## Demo
+
+📹 **Video:** _3–5 minute two-role walkthrough — link coming with the launch post._
+<!-- TODO(publish): replace with the hosted darvoza-demo-final.mp4 link -->
+
+The demo shows the same write tool (`wit_create_work_item`) **denied for a read-only analyst and
+allowed for an engineer** — each producing exactly one audit record — against a real Azure DevOps org.
+
+- [`demo/RUNBOOK.md`](demo/RUNBOOK.md) — the full guided walkthrough (~15 min from a fresh clone).
+- [`demo/DEMO-RUN-SHEET.md`](demo/DEMO-RUN-SHEET.md) + [`demo/demo-oneclick.ps1`](demo/demo-oneclick.ps1) —
+  the record-ready shot sequence and the one-shot prep script.
+- [`demo/tools/RogueCaller`](demo/tools/RogueCaller) — a deliberately *impolite* MCP client. Because the
+  gateway filters `tools/list` per role, a **correct** client never even attempts a disallowed call —
+  so the call-level deny was unobservable from any well-behaved client. The rogue caller skips
+  `tools/list` and calls the write tool directly, exactly like a compromised client would — proving
+  deny-by-default is enforced **on the call, not just on the listing**.
+
 ## Scope (v1 / MVP)
 
 In: streamable-HTTP front · stdio upstream · YAML policy · JSONL audit · two-role demo · writeup.
-Out (roadmap, called out in the writeup): approval gates / human-in-the-loop, full OAuth 2.1
-resource-server compliance (RFC 9728 / Entra token validation), remote Entra-backed upstream,
-multi-server federation, UI, rate limiting, content-safety filtering.
+Out (roadmap): approval gates / human-in-the-loop, full OAuth 2.1 resource-server compliance
+(RFC 9728 / Entra token validation), remote Entra-backed upstream, multi-server federation, UI,
+rate limiting, content-safety filtering.
 
-Full requirement: `../../../pm/requirements/REQ-001-claude-ado-governance-gateway.md`.
+### Roadmap note — local vs. remote (Entra) upstream
+
+v1 deliberately targets Microsoft's **local/stdio** Azure DevOps MCP server with PAT auth. Microsoft
+also ships a remote, Entra-backed variant and has signaled the local flavor retires when remote
+reaches GA — at which point Darvoza's upstream leg migrates from stdio+PAT to streamable HTTP with
+Entra token pass-through (the front leg and the policy/audit decorators are unaffected; the upstream
+leg is one seam — `IUpstreamToolClient`). Related operational lesson from the build: the upstream is
+in public preview and its tool names/argument shapes drift between versions, so the launch pins
+`@azure-devops/mcp@2.7.0` and any version bump should be a deliberate, tested change.
 
 ## Build order
 
@@ -155,15 +182,44 @@ Full requirement: `../../../pm/requirements/REQ-001-claude-ado-governance-gatewa
 | A01-T2 | Gateway skeleton: HTTP front + stdio upstream client. ✅ done (PR #2) |
 | A01-T3 | Policy engine (YAML roles/allowlists, deny-by-default, caller keys). ✅ done (PR #5) |
 | A01-T4 | Audit logging (JSONL, 100% coverage incl. denials). ✅ done (PR #6) |
-| A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video. ← current — [runbook](demo/RUNBOOK.md), [shot-list](demo/SHOTLIST.md), live-pipeline e2e test and [rogue-caller script](demo/tools/RogueCaller) all done (PRs #7/#8/#9); the recording is the remaining step |
-| A01-T6 | README + technical writeup + security review + publish |
+| A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video. ✅ done (PRs #7–#9, #11) |
+| A01-T6 | Security pass (constant-time key lookup, salted fingerprints, hardened upstream launch, front-leg review, audit ACLs) + README + publish. ✅ done |
 
-## Security
+## Security model
 
-Deny-by-default; secrets via env only; no credentials in the repo. Authorization-boundary
-code → a security review pass runs before this repo is made public (A01-T6). Architecture decisions
-are recorded in `docs/adr/` (the seam, lifecycle, policy, and audit design).
+**What Darvoza enforces:**
+
+- **Deny-by-default, at both surfaces.** `tools/list` returns only the caller-role's allow-listed
+  tools, and `tools/call` is denied *before touching upstream* for anything not allow-listed — proven
+  end-to-end by the test suite and observable via the [rogue caller](demo/tools/RogueCaller).
+- **Exactly one audit record per tool call, for every outcome** — allowed→ok, allowed→upstream-error,
+  allowed→exception, denied. If the record cannot be written, the call **fails closed** rather than
+  returning an unaudited success.
+- **No raw secrets on disk.** Caller keys appear in the trail only as truncated, salted HMAC-SHA256
+  fingerprints; argument values are digested, never stored; the PAT is env-only and never in argv.
+- **Constant-time key resolution.** Caller keys are compared as fixed-width SHA-256 digests via
+  `CryptographicOperations.FixedTimeEquals` over every entry — no timing signal on key content.
+- **Non-leaky denials.** The deny result is byte-identical for "unknown key" and "known key, denied
+  tool" (asserted by test), so the call surface is not a key-validity oracle.
+- **Fail-fast configuration.** A missing/invalid policy, an unset caller-key env var, or an
+  unreachable upstream refuses to start the host — the gateway never starts open.
+
+**What Darvoza does NOT protect against (v1):**
+
+- **Transport authentication.** `X-Darvoza-Key` is app-layer *authorization*. The deployment
+  assumption is loopback / trusted network (the gateway warns at startup when bound wider); on an
+  untrusted network, front it with TLS + network-level authentication.
+- **Unauthenticated `tools/list` probing is unaudited.** The 100%-coverage guarantee is for tool
+  *calls*; listing probes with guessed keys leave no trail in v1 (acceptable only under the loopback
+  assumption; an explicit follow-up for any wider deployment).
+- **Prompt injection / content safety.** Tool *results* pass through unmodified — a malicious work
+  item description reaches the client. Governance here is about *which tools run*, not what they return.
+- **A compromised upstream or host.** Darvoza trusts the official `@azure-devops/mcp` package it
+  pins, and the audit trail is only as private as the directory it lands in (see the ACL guidance above).
+
+Architecture decisions are recorded in [`docs/adr/`](docs/adr/) (SDK surface, decorator seam,
+audit + decision context).
 
 ## License
 
-TBD before publish (MIT or Apache-2.0).
+[MIT](LICENSE).
