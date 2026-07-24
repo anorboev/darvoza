@@ -34,10 +34,10 @@ using ModelContextProtocol.Client;
 // T2a (G-07): load the nearest project-root .env WITHOUT walking past the repo/solution root.
 DotEnvLoader.Load(Directory.GetCurrentDirectory());
 
-// T2c: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to `npx … <org> …`; on
-// Windows npx resolves to npx.cmd (shell), where .NET arg-escaping for batch files has known gaps.
-// This strict allowlist (no quotes/spaces/metacharacters) is therefore the LOAD-BEARING mitigation
-// for that argument-injection surface — not the OS argument escaping. Keep it strict.
+// T2c + T6a: validate ADO_ORG shape fail-fast. ADO_ORG becomes a positional arg to the upstream
+// launch. Since A01-T6a the Windows launch goes through `node npx-cli.js` (UpstreamLaunch), so no
+// batch file (npx.cmd) ever re-parses our argv — that closed the G-10 arg-injection surface. This
+// strict allowlist (no quotes/spaces/metacharacters) stays as defense-in-depth. Keep it strict.
 var adoOrg = Environment.GetEnvironmentVariable(GatewayOptions.AdoOrgEnvVar);
 if (!GatewayOptions.IsValidAdoOrg(adoOrg))
 {
@@ -143,12 +143,17 @@ static StdioClientTransport BuildUpstreamTransport(string adoOrg)
         token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
     }
 
+    // T6a (G-10 #1): resolve the launch through UpstreamLaunch — `node npx-cli.js …` on Windows so no
+    // batch file re-parses argv; plain `npx` elsewhere. Package pinned to @2.7.0 (Decision #3, G-20).
+    var launch = UpstreamLaunch.Resolve(
+        adoOrg, OperatingSystem.IsWindows(), Environment.GetEnvironmentVariable, File.Exists);
+
     return new StdioClientTransport(new StdioClientTransportOptions
     {
         Name = "azure-devops-upstream",
-        Command = "npx",
-        // @azure-devops/mcp@2.7.0: org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat).
-        Arguments = ["-y", "@azure-devops/mcp", adoOrg, "--authentication", "pat"],
+        Command = launch.Command,
+        // Org is positional; PAT auth via PERSONAL_ACCESS_TOKEN (base64 email:pat) — env only, never argv.
+        Arguments = [.. launch.Arguments],
         EnvironmentVariables = new Dictionary<string, string?> { ["PERSONAL_ACCESS_TOKEN"] = token },
     });
 }

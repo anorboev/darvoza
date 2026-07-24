@@ -35,7 +35,11 @@ any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio─�
 - **Front leg:** streamable-HTTP MCP server (`ModelContextProtocol.AspNetCore` 1.4.0). Endpoint is
   the root path `/` (`MapMcp()` default; Streamable HTTP spec 2025-11-25).
 - **Upstream leg:** MCP client over stdio to `microsoft/azure-devops-mcp` — pinned npm
-  **`@azure-devops/mcp@2.7.0`**, launched `npx -y @azure-devops/mcp <org> --authentication pat`.
+  **`@azure-devops/mcp@2.7.0`**. Launch contract: on Windows the gateway runs
+  `node <npm>/bin/npx-cli.js -y @azure-devops/mcp@2.7.0 <org> --authentication pat` directly (never
+  `npx.cmd` — no batch file ever re-parses the arguments; set `DARVOZA_NPX_CLI_JS` for non-standard
+  npm layouts); elsewhere plain `npx` (a real binary). The PAT travels only in the child's
+  environment, never in argv.
 - **Policy:** declarative `policy.yaml` — roles → tool allowlists, deny-by-default, caller→role via per-caller API key.
 - **Audit:** structured JSONL — caller, role, tool, arg summary/hash, allow/deny, upstream status, latency, UTC timestamp.
 
