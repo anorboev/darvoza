@@ -4,7 +4,9 @@
 **the same write tool denied for a read-only analyst and allowed for an engineer, each producing one
 audit record** — in **under 15 minutes**.
 
-This is the runbook the [shot-list](SHOTLIST.md) records against. The automated test
+This is the runbook the recording docs record against — the current one is the
+[DEMO-RUN-SHEET](DEMO-RUN-SHEET.md) (v2, silent take + captions, one-click prep); the earlier
+[shot-list](SHOTLIST.md) keeps the per-shot rationale and caption text it builds on. The automated test
 `tests/Darvoza.Gateway.Tests/E2E/LivePipelineE2ETests.cs` proves the same pipeline in CI with a fake
 upstream; this runbook drives the **real** Azure DevOps org.
 
@@ -113,12 +115,14 @@ note below.
 > demo. The PAT is never printed.
 >
 > 🧹 **Teardown — do this after the last take, before publishing anything:**
-> 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens. It is the only real
->    credential in the demo, and A01-T6 publishes the repo and the video.
-> 2. **Discard both caller keys** — close the shell (they were never written to a file), delete the two
->    server entries from the client config, and **clear the clipboard and its history**
->    (`Set-Clipboard -Value ' '` / `echo -n | clip.exe`, then Win+V → Clear all). The clipboard survives
->    the shell you just closed. They are live keys until all of that is done.
+> 1. **Revoke the PAT** in Azure DevOps → User settings → Personal access tokens, and delete its line
+>    from the repo-root `.env` if you keep one there. It is the only real credential in the demo, and
+>    A01-T6 publishes the repo and the video.
+> 2. **Discard both caller keys** — if they live in the gitignored repo-root `.env` (the one-click
+>    script's workflow), rotate or delete those `DARVOZA_KEY_*` lines; then close the demo shells,
+>    delete the two server entries from the client config, and **clear the clipboard and its history**
+>    (`Set-Clipboard -Value ' '` / `echo -n | clip.exe`, then Win+V → Clear all). The clipboard and the
+>    `.env` file both survive the shell you just closed. They are live keys until all of that is done.
 > 3. **Re-watch the footage for leaks** before upload: scrollback, the client config pane, and any frame
 >    where a key or the PAT could have been on screen. The audit trail itself is safe to show — it carries
 >    only a role and a non-reversible fingerprint, never the key.

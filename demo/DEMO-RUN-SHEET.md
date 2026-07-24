@@ -1,6 +1,6 @@
 # Darvoza demo — record-ready run sheet (v2 — SILENT + CAPTIONS)
 
-_v2 2026-07-22 — supersedes the voiced/bash v1. Changes: **no narration** (captions added in post — a cold doesn't block this, and most LinkedIn viewers watch muted anyway); **PowerShell syntax** (v1's bash `export` was a Windows trap); **shot 4 fixed** — rehearsal on 2026-07-22 showed the client never *attempts* a filtered tool, so the deny needs a rogue caller (see `_cc-tasks/07-demo-rogue-caller.md`; **record only after that script is merged**)._
+_v2 2026-07-22 — supersedes the voiced/bash v1. Changes: **no narration** (captions added in post — a cold doesn't block this, and most LinkedIn viewers watch muted anyway); **PowerShell syntax** (v1's bash `export` was a Windows trap); **shot 4 fixed** — rehearsal on 2026-07-22 showed the client never *attempts* a filtered tool, so the deny needs a rogue caller (merged as `demo/tools/RogueCaller`, PR #9). [SHOTLIST.md](SHOTLIST.md) keeps the per-shot rationale and caption text this sheet compresses; where timings differ, **this sheet wins**._
 
 Target on-camera length: **2.5–4 min**. One linear pass, no voice. Captions get overlaid in Clipchamp afterward.
 
@@ -11,24 +11,29 @@ Target on-camera length: **2.5–4 min**. One linear pass, no voice. Captions ge
 Secrets rule: **PAT, both key values, and `.env` never appear on screen.**
 Much of this is already true from the 2026-07-22 pre-flight session (connectors configured + working).
 
-- [ ] Easiest: run `demo\demo-oneclick.ps1` from the repo root — it does every step below
-      (env, path pinning, audit pre-clear, tail + rogue windows, gateway) in the right order.
-      Manual alternative: gateway env set **in the same PowerShell window** that will run it:
-      `$env:ADO_ORG = "anorboev"` · `$env:AZURE_DEVOPS_EXT_PAT = "<PAT>"` ·
-      `$env:DARVOZA_KEY_ANALYST = "<key>"` · `$env:DARVOZA_KEY_ENGINEER = "<key>"` ·
-      **plus the path pins** `$env:DARVOZA_POLICY_PATH = "$PWD\policy.yaml"` and
-      `$env:DARVOZA_AUDIT_PATH = "$PWD\audit\darvoza-audit.jsonl"` — without them the gateway
-      resolves both against `src\Darvoza.Gateway\` (its `dotnet run` CWD) and fails startup /
-      writes the trail where the tail isn't looking (RUNBOOK §1).
+- [ ] Rogue-caller dry run **first** (it reads the repo-root `.env` itself):
+      `dotnet run --project demo\tools\RogueCaller` → expect the DENY (exit 1). Do this *before*
+      the pre-clear so its audit line gets wiped with the rest.
+- [ ] **Path A (one-click):** run `demo\demo-oneclick.ps1` from the repo root — it loads secrets
+      from the gitignored `.env`, pins the policy/audit paths, **pre-clears the trail**, opens the
+      **audit-tail** and **rogue-caller** windows, and starts the gateway.
+      → **Skip Path B entirely**, jump to the connector check below.
+- [ ] **Path B (manual — only if not using the script):** in ONE PowerShell window set `ADO_ORG`,
+      the PAT, both `DARVOZA_KEY_*` values, **and the path pins**
+      `$env:DARVOZA_POLICY_PATH = "$PWD\policy.yaml"` / `$env:DARVOZA_AUDIT_PATH = "$PWD\audit\darvoza-audit.jsonl"`
+      (full commands: RUNBOOK §1 — without the pins the gateway resolves both against
+      `src\Darvoza.Gateway\`, its `dotnet run` CWD, and fails startup / writes the trail where the
+      tail isn't looking). Then: pre-clear `audit\darvoza-audit.jsonl`, start the gateway
+      (`dotnet run --project src/Darvoza.Gateway` → `:5000`), and open a second terminal for the
+      live tail — `Get-Content -Wait -Tail 10 .\audit\darvoza-audit.jsonl`.
       _(PowerShell, not bash `export` — the v1 trap.)_
-- [ ] `policy.yaml` present; start gateway: `dotnet run --project src/Darvoza.Gateway` → listening on `:5000`.
-- [ ] Claude Desktop: both `darvoza-analyst` / `darvoza-engineer` connectors show connected; analyst's tool list has **no** `wit_create_work_item`. Key values redacted anywhere they'd be visible.
-- [ ] Rogue-caller script available (from task 07): `demo/tools/` — dry-run it once **before** pre-clearing audit.
-- [ ] **Pre-clear the trail:** stop gateway → delete/rotate `audit\darvoza-audit.jsonl` → restart gateway → reconnect client. (Today's pre-flight lines must not appear.)
-- [ ] Second terminal: live tail — `Get-Content -Wait -Tail 10 .\audit\darvoza-audit.jsonl`
-      (for shot 6, the pretty table: your `ConvertFrom-Json | Format-Table` one-liner.)
+- [ ] **Connector check (both paths):** with the gateway up, reconnect Claude Desktop — both
+      `darvoza-analyst` / `darvoza-engineer` connectors connected; analyst's tool list has **no**
+      `wit_create_work_item`. Key values redacted anywhere they'd be visible.
+- [ ] For shot 6, the pretty table: your `ConvertFrom-Json | Format-Table` one-liner in the tail window.
 - [ ] Recorder set (OBS / `Win+G` Game Bar), 1080p, region covers client + terminals. **Mic OFF.**
-- [ ] One silent dry run of Section B.
+- [ ] One silent dry run of Section B. (If the dry run wrote audit lines, delete the trail and
+      restart the gateway — or just rerun the one-click script — before the real take.)
 
 ---
 
