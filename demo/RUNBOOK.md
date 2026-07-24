@@ -199,11 +199,13 @@ Then, in the MCP client:
 3. **Show the trail.** Point at the two new JSONL lines — same tool, same args shape, **opposite decision** —
    each carrying the caller role + a non-reversible key fingerprint, with **no raw key, no PAT, and no
    argument values** written (the `keyFingerprint`/`sha256`/`ts` values below are **illustrative** — your
-   run produces different digests):
+   run produces different digests; fingerprints are **salted per deployment**, and unless you set
+   `DARVOZA_FINGERPRINT_SALT` they change on every gateway restart, so don't cut between takes expecting
+   the same fingerprint values):
 
    ```json
-   {"ts":"…","tool":"wit_create_work_item","caller":{"role":"analyst","keyFingerprint":"a1b2c3d4"},"decision":"deny","reason":"…","args":{"keys":["fields","project","workItemType"],"count":3,"sha256":"…"},"upstream":null,"latencyMs":1}
-   {"ts":"…","tool":"wit_create_work_item","caller":{"role":"engineer","keyFingerprint":"e5f6a7b8"},"decision":"allow","reason":null,"args":{"keys":["fields","project","workItemType"],"count":3,"sha256":"…"},"upstream":{"status":"ok"},"latencyMs":214}
+   {"ts":"…","tool":"wit_create_work_item","caller":{"role":"analyst","keyFingerprint":"a1b2c3d4e5f60718"},"decision":"deny","reason":"…","args":{"keys":["fields","project","workItemType"],"count":3,"sha256":"…"},"upstream":null,"latencyMs":1}
+   {"ts":"…","tool":"wit_create_work_item","caller":{"role":"engineer","keyFingerprint":"e5f6a7b8c9d0a1b2"},"decision":"allow","reason":null,"args":{"keys":["fields","project","workItemType"],"count":3,"sha256":"…"},"upstream":{"status":"ok"},"latencyMs":214}
    ```
 
 That is the whole story: **server-side, org-controlled policy + a 100%-coverage audit trail**, independent

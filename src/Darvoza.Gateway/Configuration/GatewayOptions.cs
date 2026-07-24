@@ -35,6 +35,9 @@ public sealed partial class GatewayOptions
     /// <summary>Default audit-trail file name within <see cref="DefaultAuditDirName"/>.</summary>
     public const string DefaultAuditFileName = "darvoza-audit.jsonl";
 
+    /// <summary>Optional environment variable configuring the audit-fingerprint salt (A01-T6e).</summary>
+    public const string FingerprintSaltEnvVar = "DARVOZA_FINGERPRINT_SALT";
+
     /// <summary>The validated Azure DevOps organization name (positional arg to the upstream server).</summary>
     public required string AdoOrg { get; init; }
 
@@ -68,6 +71,27 @@ public sealed partial class GatewayOptions
             return configured;
 
         return Path.Combine(contentRoot, DefaultAuditDirName, DefaultAuditFileName);
+    }
+
+    /// <summary>
+    /// Resolves the audit-fingerprint salt (A01-T6e, G-17 #1). A configured
+    /// <see cref="FingerprintSaltEnvVar"/> (UTF-8 bytes of its value) gives fingerprints that are stable
+    /// across restarts; otherwise a fresh 32-byte random salt is generated, so fingerprints correlate
+    /// within a run only. The salt is never logged and never written to the audit trail.
+    /// </summary>
+    /// <param name="getEnv">Environment reader (injectable for tests); defaults to the process environment.</param>
+    /// <param name="randomBytes">Random-byte source (injectable for tests); defaults to a CSPRNG.</param>
+    public static byte[] ResolveFingerprintSalt(
+        Func<string, string?>? getEnv = null,
+        Func<int, byte[]>? randomBytes = null)
+    {
+        getEnv ??= Environment.GetEnvironmentVariable;
+        randomBytes ??= System.Security.Cryptography.RandomNumberGenerator.GetBytes;
+
+        var configured = getEnv(FingerprintSaltEnvVar);
+        return string.IsNullOrWhiteSpace(configured)
+            ? randomBytes(32)
+            : System.Text.Encoding.UTF8.GetBytes(configured);
     }
 
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no

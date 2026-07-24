@@ -32,7 +32,8 @@ public sealed class PolicyEnforcingToolClient(
     IUpstreamToolClient inner,
     Policy policy,
     ICallerKeyProvider callerKeys,
-    ICallDecisionContext decisions) : IUpstreamToolClient
+    ICallDecisionContext decisions,
+    CallerFingerprint fingerprints) : IUpstreamToolClient
 {
     /// <summary>Returns only the tools the caller's role allows. Unknown/missing key → no tools.</summary>
     public async Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken ct)
@@ -53,7 +54,7 @@ public sealed class PolicyEnforcingToolClient(
     {
         var callerKey = callerKeys.GetCallerKey();
         var role = policy.RoleForKey(callerKey);
-        var fingerprint = CallerFingerprint.Of(callerKey);
+        var fingerprint = fingerprints.Of(callerKey);
 
         if (!policy.IsAllowed(callerKey, callParams.Name))
         {

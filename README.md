@@ -103,15 +103,18 @@ process's working directory — pin it explicitly, as in the quickstart above; g
 layer is the outermost decorator over the policy layer (see `docs/adr/ADR-0003`).
 
 **No raw secret is ever written** — never the caller key, never the PAT, never unredacted argument values.
-The caller is identified by role plus a non-reversible short fingerprint of its key; arguments are summarized
-as their key names + count + a SHA-256 digest (the values are hashed, never stored). If a record cannot be
-written, the call **fails closed** — no unaudited success is returned.
+The caller is identified by role plus a non-reversible short fingerprint of its key — a truncated
+HMAC-SHA256 under a **per-deployment salt** (`DARVOZA_FINGERPRINT_SALT` if configured, else generated
+fresh at startup), so a published trail cannot be dictionary-matched against guessed keys and the same
+key maps to different fingerprints on different deployments. The salt itself is never logged. Arguments
+are summarized as their key names + count + a SHA-256 digest (the values are hashed, never stored). If a
+record cannot be written, the call **fails closed** — no unaudited success is returned.
 
 ```json
 {
   "ts": "2026-06-18T12:00:00.0000000+00:00",
   "tool": "wit_get_work_item",
-  "caller": { "role": "analyst", "keyFingerprint": "a1b2c3d4" },
+  "caller": { "role": "analyst", "keyFingerprint": "a1b2c3d4e5f60718" },
   "decision": "allow",
   "reason": null,
   "args": { "keys": ["id", "project"], "count": 2, "sha256": "…" },

@@ -39,7 +39,8 @@ public class AuditingToolClientTests
         };
         var decisions = new AsyncLocalCallDecisionContext();
         var policy = new PolicyEnforcingToolClient(
-            upstream, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey }, decisions);
+            upstream, TwoRolePolicy(), new FakeCallerKeyProvider { Key = callerKey }, decisions,
+            new CallerFingerprint("test-salt"u8.ToArray()));
         var sink = new FakeAuditSink();
         var time = new ManualTimeProvider(new DateTimeOffset(2026, 6, 18, 12, 0, 0, TimeSpan.Zero));
         var sut = new AuditingToolClient(policy, sink, decisions, time);
@@ -175,7 +176,7 @@ public class AuditingToolClientTests
         Assert.Equal(Fp(analystSink, 0), Fp(analystSink, 1)); // stable for the same key
         Assert.NotEqual(Fp(analystSink, 0), Fp(engineerSink, 0)); // differs across keys
         Assert.NotEqual("analyst-key", Fp(analystSink, 0)); // never the raw key
-        Assert.Equal(8, Fp(analystSink, 0)!.Length); // truncated digest
+        Assert.Equal(CallerFingerprint.HexLength, Fp(analystSink, 0)!.Length); // truncated digest (16 hex since T6e)
     }
 
     [Fact]

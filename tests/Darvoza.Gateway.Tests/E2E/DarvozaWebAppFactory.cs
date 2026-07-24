@@ -43,6 +43,10 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     public const string AnalystKey = "e2e-analyst-key-DO-NOT-LOG";
     public const string EngineerKey = "e2e-engineer-key-DO-NOT-LOG";
 
+    /// <summary>Configured fingerprint salt (T6e) — set so fingerprints are deterministic across the
+    /// factory's host builds AND so tests can assert the salt itself never reaches the trail.</summary>
+    public const string FingerprintSalt = "e2e-fingerprint-salt-DO-NOT-LOG";
+
     /// <summary>The fake upstream leaf — inspect <see cref="FakeUpstreamToolClient.LastCallParams"/> to prove
     /// a denied call never reached upstream, or read its (pre-seeded) result/tool list for an allowed call.</summary>
     internal FakeUpstreamToolClient Upstream { get; } = new()
@@ -80,6 +84,7 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
             ("DARVOZA_POLICY_PATH", Path.Combine(AppContext.BaseDirectory, "fixtures", "policy.e2e.yaml")),
             ("DARVOZA_KEY_ANALYST", AnalystKey),
             ("DARVOZA_KEY_ENGINEER", EngineerKey),
+            ("DARVOZA_FINGERPRINT_SALT", FingerprintSalt),
         };
 
         // Snapshot BEFORE any mutation; open the try BEFORE the first Set so a partial mutation always restores.
@@ -121,7 +126,8 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
                         sp.GetRequiredService<FakeUpstreamToolClient>(),
                         sp.GetRequiredService<Policy>(),
                         sp.GetRequiredService<ICallerKeyProvider>(),
-                        sp.GetRequiredService<ICallDecisionContext>()),
+                        sp.GetRequiredService<ICallDecisionContext>(),
+                        sp.GetRequiredService<CallerFingerprint>()),   // the real salted instance (T6e)
                     sp.GetRequiredService<IAuditSink>(),
                     sp.GetRequiredService<ICallDecisionContext>(),
                     sp.GetRequiredService<TimeProvider>()));

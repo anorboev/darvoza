@@ -122,12 +122,19 @@ public sealed class LivePipelineE2ETests
         await client.CallToolAsync(WriteTool, WorkItemArgs());
 
         var line = Assert.Single(factory.Audit.Lines);
-        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, line);   // raw key is redacted out...
-        // ...replaced by a short non-reversible fingerprint.
+        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, line);       // raw key is redacted out...
+        Assert.DoesNotContain(DarvozaWebAppFactory.FingerprintSalt, line);   // ...and the salt never leaks (T6e)
+        // ...replaced by a short non-reversible fingerprint: the truncated HMAC-SHA256 of the key under
+        // the deployment salt the factory configured (T6e — salted, so a published trail cannot be
+        // dictionary-matched against guessed keys).
         var fingerprint = SingleAuditRecord(factory)
             .GetProperty("caller").GetProperty("keyFingerprint").GetString();
-        Assert.False(string.IsNullOrEmpty(fingerprint));
-        Assert.DoesNotContain(DarvozaWebAppFactory.EngineerKey, fingerprint!);
+        var expected = Convert.ToHexStringLower(
+                System.Security.Cryptography.HMACSHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(DarvozaWebAppFactory.FingerprintSalt),
+                    System.Text.Encoding.UTF8.GetBytes(DarvozaWebAppFactory.EngineerKey)))
+            [..Darvoza.Gateway.Audit.CallerFingerprint.HexLength];
+        Assert.Equal(expected, fingerprint);
     }
 
     [Fact]

@@ -77,6 +77,10 @@ builder.Services.AddSingleton<ICallerKeyProvider, HttpHeaderCallerKeyProvider>()
 // gitignored audit/ dir (ADR-0003 / decision #6 lifecycle posture).
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ICallDecisionContext, AsyncLocalCallDecisionContext>();
+// T6e (G-17 #1): audit fingerprints are HMAC-SHA256 under a per-deployment salt —
+// DARVOZA_FINGERPRINT_SALT when configured (stable across restarts), else generated fresh at startup
+// (fingerprints then correlate within a run only). The salt is never logged or written to the trail.
+builder.Services.AddSingleton(new CallerFingerprint(GatewayOptions.ResolveFingerprintSalt()));
 builder.Services.AddSingleton<IAuditSink>(_ =>
     new JsonlAuditSink(GatewayOptions.ResolveAuditPath(Directory.GetCurrentDirectory())));
 
@@ -91,7 +95,8 @@ builder.Services.AddSingleton<IUpstreamToolClient>(sp =>
             sp.GetRequiredService<McpUpstreamToolClient>(),
             sp.GetRequiredService<Policy>(),
             sp.GetRequiredService<ICallerKeyProvider>(),
-            sp.GetRequiredService<ICallDecisionContext>()),
+            sp.GetRequiredService<ICallDecisionContext>(),
+            sp.GetRequiredService<CallerFingerprint>()),
         sp.GetRequiredService<IAuditSink>(),
         sp.GetRequiredService<ICallDecisionContext>(),
         sp.GetRequiredService<TimeProvider>()));

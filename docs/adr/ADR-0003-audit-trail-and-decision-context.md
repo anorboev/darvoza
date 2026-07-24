@@ -38,8 +38,15 @@ values**), `upstream` (`{status: ok|error}`, `null` on deny), `latencyMs`. (`dec
 `"unknown"` value for the should-not-occur case where the policy stage never published a decision — e.g. a
 future reordering that lets the inner call fault first — so a missing decision can never read as a granted
 call.) **No raw secret is ever written** — not the caller key, not the PAT, not unredacted arguments. The caller fingerprint is a truncated
-SHA-256 of the caller key, computed by the policy stage (which already holds the key), so the audit stage
+digest of the caller key, computed by the policy stage (which already holds the key), so the audit stage
 never touches the raw secret. `ListToolsAsync` is **not** a tool call and is not audited.
+
+> **Amendment (A01-T6e, G-17 #1):** originally the fingerprint was an unsalted truncated SHA-256
+> (8 hex / 32 bits). It is now a truncated **HMAC-SHA256 under a per-deployment salt** (16 hex /
+> 64 bits): `DARVOZA_FINGERPRINT_SALT` when configured (fingerprints stable across restarts), else a
+> fresh random salt at startup (fingerprints correlate within a run only). The salt is never logged
+> and never written to the trail. This breaks cross-deployment fingerprint correlation and
+> dictionary-matching of published trails against guessed keys. See `Audit/CallerFingerprint.cs`.
 
 ### 3. Fail-closed on write failure
 If the record cannot be written, the call does **not** return a successful result — a non-leaky error
