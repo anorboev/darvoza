@@ -128,8 +128,10 @@ app.Lifetime.ApplicationStarted.Register(() =>
 {
     // T6f (@security-reviewer MEDIUM-1): force the audit sink into existence NOW. Its ctor creates
     // the audit directory (owner-only on Unix), so the permission check below inspects the REAL
-    // directory even on a fresh deployment — and an unusable audit path surfaces at startup rather
-    // than on the first tool call (fail-fast posture).
+    // directory even on a fresh deployment — and an unusable audit path gets LOGGED at startup
+    // instead of being discovered on the first tool call. (ApplicationStarted callbacks are
+    // best-effort, not process-aborting; the hard guarantee stays the fail-closed write path in
+    // AuditingToolClient.)
     _ = app.Services.GetRequiredService<IAuditSink>();
 
     foreach (var url in app.Urls.Where(url => !GatewayOptions.IsLoopbackUrl(url)))
