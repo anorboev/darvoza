@@ -17,4 +17,10 @@
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared SOURCE link, not a project reference (the wire-only stance above still holds): reuse the
+         gateway's bounded .env loader so both processes resolve the demo keys identically. -->
+    <Compile Include="..\..\..\src\Darvoza.Gateway\Configuration\DotEnvLoader.cs" Link="DotEnvLoader.cs" />
+  </ItemGroup>
+
 </Project>
