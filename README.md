@@ -18,10 +18,10 @@ any MCP server.** Deny-by-default, every call recorded.
 > run against Microsoft's official Azure DevOps MCP server. Pointing it at your own server is a
 > [config change](#use-it-with-another-mcp-server), not a fork.
 
-> **Status:** ✅ v1 complete — gateway, policy engine, audit trail, demo assets, and the pre-publish
-> security pass (A01-T6) have all landed. This is a focused open-source *reference implementation* —
-> consulting proof-of-work, not a product launch. See the [demo](#demo) and the
-> [security model](#security-model).
+> **Status:** ✅ v1 complete — gateway, policy engine, audit trail, demo assets, the pre-publish
+> security pass (A01-T6), and the configurable upstream (A01-T7) have all landed. This is a focused
+> open-source *reference implementation* — consulting proof-of-work, not a product launch. See the
+> [demo](#demo) and the [security model](#security-model).
 
 ## Why this exists
 
@@ -138,8 +138,9 @@ because none of them ever knew which server was upstream.
 Notes worth reading once:
 
 - **`args` is a list, one element per argument.** Darvoza never splits a command string into arguments —
-  that word-splitting step is what a shell does, and not doing it is what keeps this launch path free of
-  shell parsing. A single string is rejected at startup.
+  that word-splitting step is what a shell does. A single string is rejected at startup. (This is about
+  *Darvoza's* layer; on Windows the MCP SDK still wraps the launch in `cmd.exe /c` — see the
+  [security model](#security-model).)
 - **Put credentials in `passEnv`, not in `args`.** The resolved argv is logged once at startup, so a
   secret in `args` lands in your logs. A configured upstream gets a curated environment plus exactly the
   variables you name in `passEnv` — it does **not** inherit the gateway's environment, which holds your
@@ -305,9 +306,12 @@ file owner-writable only**, with the same care as the binary. Full argument in
   [`docs/adr/ADR-0004`](docs/adr/ADR-0004-configurable-upstream-and-config-trust-boundary.md).
 - **A compromised upstream or host.** Darvoza trusts the upstream server it is configured to launch —
   the pinned `@azure-devops/mcp` package by default, or whatever you point it at — and the audit trail is
-  only as private as the directory it lands in (see the ACL guidance above). The upstream child inherits
-  the gateway's environment, so do not run a third-party upstream in a process environment holding
-  credentials it should not see; isolating the child's environment is out of v1 scope.
+  only as private as the directory it lands in (see the ACL guidance above).
+- **Environment isolation for the *default* Azure DevOps profile.** A *configured* upstream is isolated
+  (see the enforced-guarantees list above), but the built-in `azure-devops` profile still inherits the
+  gateway's environment — so the official upstream also sees your caller keys and the audit fingerprint
+  salt. It is the pinned, trusted package and this is unchanged v1 behaviour, but narrowing it is
+  tracked, not done.
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/) (SDK surface, decorator seam,
 audit + decision context, configurable upstream + the config-file trust boundary).
