@@ -4,15 +4,19 @@
 [![.NET 10](https://img.shields.io/badge/.NET-10.0_(LTS)-512BD4.svg)](https://dotnet.microsoft.com/)
 [![MCP C# SDK](https://img.shields.io/badge/MCP_C%23_SDK-1.4.0-blue.svg)](https://www.nuget.org/packages/ModelContextProtocol)
 
-**An MCP governance gateway for Azure DevOps, in .NET — for any MCP client.**
-Per-role tool policy, deny-by-default, full audit trail.
+**An MCP governance gateway in .NET — put per-role tool policy and a full audit trail in front of
+any MCP server.** Deny-by-default, every call recorded.
 
 > _"Darvoza" — Uzbek for "gate."_ A thin .NET service that sits between any MCP client
-> (Claude Code / Claude Desktop, VS Code Copilot, and other MCP-compatible assistants) and
-> Microsoft's official Azure DevOps MCP server, so a regulated enterprise can roll out agentic
-> access to Azure DevOps **without** giving every user unscoped write access to the org.
-> Because Darvoza is itself a standard streamable-HTTP MCP server, any MCP client consumes it
-> identically — examples below lead with Claude.
+> (Claude Code / Claude Desktop, VS Code Copilot, and other MCP-compatible assistants) and any
+> MCP server, so a regulated enterprise can roll out agentic access to a system of record
+> **without** giving every user unscoped write access to it.
+> Both legs are standard MCP: Darvoza is itself a streamable-HTTP MCP server, so any client
+> consumes it identically, and it speaks stdio to whichever upstream you point it at.
+>
+> **The demonstrated case is Azure DevOps** — the demo, the video, and the default configuration all
+> run against Microsoft's official Azure DevOps MCP server. Pointing it at your own server is a
+> [config change](#use-it-with-another-mcp-server), not a fork.
 
 > **Status:** ✅ v1 complete — gateway, policy engine, audit trail, demo assets, and the pre-publish
 > security pass (A01-T6) have all landed. This is a focused open-source *reference implementation* —
@@ -25,21 +29,26 @@ Client-side permissioning (e.g. an assistant's own allow/deny lists) isn't centr
 or auditable; Azure API Management can govern MCP traffic but is heavyweight platform config.
 Darvoza demonstrates the enterprise gap in between: **server-side, org-controlled policy + a
 100%-coverage audit trail, in lightweight readable .NET — independent of which MCP client your
-teams use.**
+teams use, and of which MCP server you put behind it.**
 
 ## How it works
 
 ```
-any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio──▶  official azure-devops-mcp  ──▶  Azure DevOps
-(Claude lead /                       │ per-role tool scoping
- VS Code Copilot / …)                │ deny-by-default
+any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio──▶  any MCP server  ──▶  your system of record
+(Claude lead /                       │ per-role tool scoping      (demo: official
+ VS Code Copilot / …)                │ deny-by-default             azure-devops-mcp)
                                      └ append-only JSONL audit (every call, allowed AND denied)
 ```
 
+Policy and audit operate on **tool names** at a single decorator seam, so neither knows or cares which
+server is upstream — only the launch path ever did, and since A01-T7 that is configuration.
+
 - **Front leg:** streamable-HTTP MCP server (`ModelContextProtocol.AspNetCore` 1.4.0). Endpoint is
   the root path `/` (`MapMcp()` default; Streamable HTTP spec 2025-11-25).
-- **Upstream leg:** MCP client over stdio to `microsoft/azure-devops-mcp` — pinned npm
-  **`@azure-devops/mcp@2.7.0`**. Launch contract: on Windows the gateway runs
+- **Upstream leg:** MCP client over stdio to whichever server the policy file selects — see
+  [Use it with another MCP server](#use-it-with-another-mcp-server). The default (and the demonstrated
+  case) is `microsoft/azure-devops-mcp`, pinned npm **`@azure-devops/mcp@2.7.0`**. Launch contract for
+  that profile: on Windows the gateway runs
   `node <npm>/bin/npx-cli.js -y @azure-devops/mcp@2.7.0 <org> --authentication pat` directly (never
   `npx.cmd` — no batch file ever re-parses the arguments; set `DARVOZA_NPX_CLI_JS` for non-standard
   npm layouts); elsewhere plain `npx` (a real binary). The PAT travels only in the child's
@@ -49,7 +58,9 @@ any MCP client ──streamable-HTTP──▶  Darvoza gateway  ──stdio─�
 
 ## Quickstart
 
-> Requires .NET 10 SDK (LTS) + Node (for the upstream `npx` server) + an Azure DevOps org with a least-privilege PAT.
+> Requires .NET 10 SDK (LTS). This quickstart uses the default Azure DevOps upstream, which also needs
+> Node (for the upstream `npx` server) and an Azure DevOps org with a least-privilege PAT — neither is
+> required if you [point Darvoza at a different MCP server](#use-it-with-another-mcp-server).
 
 Secrets load from real env vars, or from a gitignored `.env` discovered by walking up from the
 working dir **to the repo/solution root** — the search is bounded and never reads a `.env` outside
@@ -98,6 +109,44 @@ roles:
   analyst:
     allow: [repo_list_repos_by_project, wit_get_work_item]   # every other tool is denied by default
 ```
+
+## Use it with another MCP server
+
+Darvoza governs whichever MCP server the **policy file** names. With no `upstream:` section it launches
+the built-in `azure-devops` profile, which is what the demo and the quickstart above use. To point it at
+your own server, give it a command and its arguments:
+
+```yaml
+# policy.yaml — governing some other stdio MCP server
+upstream:
+  command: node                                    # the executable, launched directly (no shell)
+  args: ["/srv/my-mcp-server/index.js", "--readonly"]   # one list element per argument
+
+callers:
+  - keyEnv: DARVOZA_KEY_ANALYST
+    role: analyst
+roles:
+  analyst:
+    allow: [search_documents, get_document]        # your server's tool names; everything else denied
+```
+
+That is the whole change — no `ADO_ORG`, no PAT, no Node needed unless your server wants them. Policy
+enforcement, the audit trail, and the `X-Darvoza-Key` role mapping work exactly as documented above,
+because none of them ever knew which server was upstream.
+
+Notes worth reading once:
+
+- **`args` is a list, one element per argument.** Darvoza never splits a command string into arguments —
+  that word-splitting step is what a shell does, and not doing it is what keeps this launch path free of
+  shell parsing. A single string is rejected at startup.
+- **Put credentials in the environment, not in `args`.** The upstream child inherits the gateway's
+  environment (that is how the Azure DevOps PAT reaches the official server). The resolved argv is
+  logged once at startup, so a secret in `args` lands in your logs.
+- **Startup tells you when the policy and the server disagree.** Any allow-listed tool name the connected
+  server does not offer produces one warning — useful when a tool gets renamed upstream. It is a warning,
+  not a failure: deny-by-default makes an absent tool harmless, and a governance gateway should not fall
+  over on a benign version bump.
+- **One upstream per gateway instance.** Fronting several servers at once is roadmap, not v1.
 
 ## Audit trail (JSONL)
 
@@ -166,6 +215,9 @@ rate limiting, content-safety filtering.
 
 ### Roadmap note — local vs. remote (Entra) upstream
 
+This note is about the **Azure DevOps** upstream specifically. Darvoza's upstream leg is stdio in v1
+whichever server you configure; remote/HTTP upstreams are roadmap.
+
 v1 deliberately targets Microsoft's **local/stdio** Azure DevOps MCP server with PAT auth. Microsoft
 also ships a remote, Entra-backed variant and has signaled the local flavor retires when remote
 reaches GA — at which point Darvoza's upstream leg migrates from stdio+PAT to streamable HTTP with
@@ -184,6 +236,7 @@ in public preview and its tool names/argument shapes drift between versions, so 
 | A01-T4 | Audit logging (JSONL, 100% coverage incl. denials). ✅ done (PR #6) |
 | A01-T5 | Demo: throwaway ADO org + two-role script + 3–5 min video. ✅ done (PRs #7–#9, #11) |
 | A01-T6 | Security pass (constant-time key lookup, salted fingerprints, hardened upstream launch, front-leg review, audit ACLs) + README + publish. ✅ done |
+| A01-T7 | Configurable upstream MCP server + generalized positioning (ADR-0004). ✅ done |
 
 ## Security model
 
@@ -203,6 +256,27 @@ in public preview and its tool names/argument shapes drift between versions, so 
   tool" (asserted by test), so the call surface is not a key-validity oracle.
 - **Fail-fast configuration.** A missing/invalid policy, an unset caller-key env var, or an
   unreachable upstream refuses to start the host — the gateway never starts open.
+- **The upstream command comes from the config file only.** Never from an environment variable, header,
+  query string, or body — the launch is resolved before the web host is built, so no request can reach
+  it. Argv is passed as an array from the config file to the process launcher: nothing joins or splits
+  it, so no shell or batch file re-parses it.
+
+**The config file is a trust boundary.**
+
+Whoever can edit `policy.yaml` can already define a role allow-listing every upstream tool and bind a
+caller key to it — their authority over Darvoza's decisions is total before they touch the `upstream:`
+section. Letting that same file name the upstream command therefore does not widen their power over the
+gateway. To be precise rather than glib: arbitrary tool calls are not literally arbitrary code execution.
+The honest form is that in every deployment shape Darvoza supports (single-tenant, operator-run,
+loopback / trusted network), whoever can write the config file can also write the gateway's binaries or
+its service definition, which already yields code execution. **This makes an existing boundary explicit
+rather than creating one.**
+
+The case that is *not* covered, stated plainly: a deployment where the config file is writable by a party
+who cannot write the install directory — a config-management agent with a narrower ACL, a shared
+operations volume. There, config-driven process launch **is** a privilege escalation. **Keep the policy
+file owner-writable only**, with the same care as the binary. Full argument in
+[`docs/adr/ADR-0004`](docs/adr/ADR-0004-configurable-upstream-and-config-trust-boundary.md).
 
 **What Darvoza does NOT protect against (v1):**
 
@@ -214,11 +288,14 @@ in public preview and its tool names/argument shapes drift between versions, so 
   assumption; an explicit follow-up for any wider deployment).
 - **Prompt injection / content safety.** Tool *results* pass through unmodified — a malicious work
   item description reaches the client. Governance here is about *which tools run*, not what they return.
-- **A compromised upstream or host.** Darvoza trusts the official `@azure-devops/mcp` package it
-  pins, and the audit trail is only as private as the directory it lands in (see the ACL guidance above).
+- **A compromised upstream or host.** Darvoza trusts the upstream server it is configured to launch —
+  the pinned `@azure-devops/mcp` package by default, or whatever you point it at — and the audit trail is
+  only as private as the directory it lands in (see the ACL guidance above). The upstream child inherits
+  the gateway's environment, so do not run a third-party upstream in a process environment holding
+  credentials it should not see; isolating the child's environment is out of v1 scope.
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/) (SDK surface, decorator seam,
-audit + decision context).
+audit + decision context, configurable upstream + the config-file trust boundary).
 
 ## License
 

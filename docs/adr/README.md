@@ -9,3 +9,4 @@ promote the load-bearing ones into the code repo (the in-code `ADR-####` citatio
 | ADR-0001 | MCP C# SDK 1.4.0 — adopted API surface | all tasks |
 | ADR-0002 | Tool pipeline — decorator chain on a single upstream seam (+ lifecycle) | A01-T3, A01-T4 |
 | ADR-0003 | Audit trail — outermost decorator + ambient decision context | A01-T4, A01-T5, A01-T6 |
+| ADR-0004 | Configurable upstream MCP server; the config file as a trust boundary | A01-T7, upstream launch |

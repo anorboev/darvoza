@@ -1,6 +1,28 @@
 # Darvoza policy — example (A01-T3 wires this up; shown now so the design is visible).
 # Deny-by-default: a tool not listed for a role is denied. Every decision is audited.
 
+# ---------------------------------------------------------------------------------------------------
+# Which MCP server to govern (A01-T7, optional). Omit this whole section for the built-in
+# "azure-devops" profile — that is the default, and what the demo/RUNBOOK use.
+#
+# To govern a DIFFERENT MCP server, give it a command and its arguments instead:
+#
+#   upstream:
+#     command: node                                       # launched directly — never through a shell
+#     args: ["/srv/my-mcp-server/index.js", "--readonly"]  # a LIST: one element per argument
+#
+# Rules worth knowing:
+#   - 'profile' and 'command' are mutually exclusive; declaring both fails startup.
+#   - 'args' must be a list. A single string is REJECTED, never split on whitespace — that splitting
+#     step is what a shell does, and Darvoza's upstream launch deliberately has no shell in it.
+#   - Credentials go in the ENVIRONMENT, not in args. The upstream child inherits the gateway's
+#     environment (that is how the Azure DevOps PAT reaches the official server), and the resolved
+#     argv is written to the log once at startup — a secret in 'args' would land there.
+#   - Whoever can edit this file can already allow every tool to a role of their choosing, so naming
+#     the upstream command here grants no new authority over the gateway — but keep the file
+#     owner-writable only. See docs/adr/ADR-0004 for the full trust-boundary argument.
+# ---------------------------------------------------------------------------------------------------
+
 callers:
   # caller API key (sent as a header) -> role. Keys live in env/secret store, NOT here.
   - keyEnv: DARVOZA_KEY_ANALYST     # value supplied via env var

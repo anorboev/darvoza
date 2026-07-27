@@ -169,6 +169,29 @@ public class UpstreamConfigTests
         Assert.Empty(spec.Arguments);
     }
 
+    [Fact]
+    public void The_shipped_policy_example_still_resolves_to_the_default_azure_devops_upstream()
+    {
+        // G-14: policy.yaml is gitignored and policy.example.yaml is what a fresh clone copies. So the
+        // example IS the default path — if A01-T7's documentation block ever broke its parse, or its
+        // commented-out upstream section became live, every first run would break. Asserted, not assumed.
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Darvoza.slnx")))
+            root = root.Parent;
+
+        Assert.NotNull(root);
+        var example = Path.Combine(root.FullName, "policy.example.yaml");
+
+        var policy = PolicyLoader.Parse(
+            File.ReadAllText(example),
+            example,
+            key => key.StartsWith("DARVOZA_KEY_", StringComparison.Ordinal) ? $"value-of-{key}" : null);
+
+        Assert.Equal(UpstreamOptions.AzureDevOps, policy.Upstream);
+        Assert.Equal("analyst", policy.RoleForKey("value-of-DARVOZA_KEY_ANALYST"));
+        Assert.Equal("engineer", policy.RoleForKey("value-of-DARVOZA_KEY_ENGINEER"));
+    }
+
     [Theory]
     [InlineData("wrapper.cmd", true)]
     [InlineData("wrapper.BAT", true)]
