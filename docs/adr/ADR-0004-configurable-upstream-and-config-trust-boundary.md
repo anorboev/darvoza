@@ -112,6 +112,13 @@ default environment (`PATH`, `HOME`, system directories) plus exactly the variab
 `upstream.passEnv`. As with a caller's `keyEnv`, the config file carries variable **names**, never values,
 and an unset one fails startup rather than launching half-configured.
 
+`passEnv` is also **denylisted against Darvoza's own secrets** (`UpstreamOptions.IsDarvozaSecretVariable`):
+naming `DARVOZA_KEY_*`, `DARVOZA_FINGERPRINT_SALT`, `PERSONAL_ACCESS_TOKEN` or `AZURE_DEVOPS_EXT_PAT`
+fails startup. Without it, `passEnv: [DARVOZA_KEY_ANALYST]` would hand an upstream a caller key and let it
+act as that role — an operator-facing hole straight through the isolation sitting beside it. The match is
+case-insensitive; unrelated `DARVOZA_*` variables (`DARVOZA_POLICY_PATH`, `DARVOZA_AUDIT_PATH`) are not
+blocked.
+
 The built-in `azure-devops` profile still inherits, unchanged from before A01-T7 — it is the pinned,
 trusted package, and that is how the PAT reaches it. **Known consequence, pre-existing and not fixed
 here:** the official Azure DevOps server therefore also sees the caller keys and the fingerprint salt.
@@ -144,6 +151,19 @@ applying its own caret-escaping (`EscapeArgumentString`, pattern `[&^><|]`) to e
   spawns directly and the demotion holds.
 - The gateway logs this at startup rather than leaving it implicit, and the guidance for
   `upstream.args` is to avoid cmd.exe metacharacters.
+
+**Independently corroborated**, so this does not rest on our decompilation alone:
+
+- [`modelcontextprotocol/csharp-sdk#1601`](https://github.com/modelcontextprotocol/csharp-sdk/issues/1601)
+  (open, labelled `bug` / `P2`) quotes the same branch from `main` verbatim, filed by an unrelated
+  reporter hitting it as a spaces-in-path launch failure.
+- [`#594`](https://github.com/modelcontextprotocol/csharp-sdk/issues/594) (closed, 2025) is the same
+  wrapping surfacing as an `&`-in-argument failure.
+- The pinned `ModelContextProtocol.Core` 1.4.0 assembly contains **exactly one** `cmd.exe` string
+  literal, consistent with the single assignment above.
+
+Note what the two issues have in common: both report it as a *functional* bug, and neither raises the
+argument-handling consequence. That is the gap `A01-T7b-sdk-issue` addresses.
 
 This is a **pre-existing property of the pinned SDK, not something A01-T7 introduced** — but A01-T7 both
 restates the claim and adds operator-controlled argv to the path, so it is corrected here.

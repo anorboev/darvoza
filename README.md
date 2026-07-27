@@ -145,7 +145,10 @@ Notes worth reading once:
   secret in `args` lands in your logs. A configured upstream gets a curated environment plus exactly the
   variables you name in `passEnv` — it does **not** inherit the gateway's environment, which holds your
   caller keys and the audit fingerprint salt. An unset `passEnv` variable fails startup rather than
-  launching the server half-configured.
+  launching the server half-configured. **Darvoza also refuses to forward its own secrets** — naming
+  `DARVOZA_KEY_*`, `DARVOZA_FINGERPRINT_SALT`, `PERSONAL_ACCESS_TOKEN` or `AZURE_DEVOPS_EXT_PAT` in
+  `passEnv` fails startup, because handing an upstream a caller key would let it call back in as that
+  role and undo the isolation it sits beside.
 - **Startup tells you when the policy and the server disagree.** Any allow-listed tool name the connected
   server does not offer produces one warning — useful when a tool gets renamed upstream. It is a warning,
   not a failure: deny-by-default makes an absent tool harmless, and a governance gateway should not fall
