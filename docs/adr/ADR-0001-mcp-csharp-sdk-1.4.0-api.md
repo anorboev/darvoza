@@ -28,5 +28,8 @@ Adopt this surface and do not relitigate it in T3–T6:
 
 ## Status notes
 - Upstream server pinned `@azure-devops/mcp@2.7.0`, local/stdio, PAT = base64(`email:pat`). The
-  local-vs-remote (Entra) upstream choice is a separate **open decision** (REQ-001 open-Q #4), to resolve in
-  the A01-T6 writeup.
+  local-vs-remote (Entra) upstream choice (REQ-001 open-Q #4) was **RESOLVED in the A01-T6 writeup: v1
+  targets local/stdio.** A remote, Entra-backed upstream is roadmap, not a v1 gate — see the README's
+  "Roadmap note — local vs. remote (Entra) upstream".
+- Since **A01-T7 / ADR-0004** the upstream is no longer pinned to Azure DevOps at all: it is
+  operator-configurable, with `azure-devops` as the default profile.

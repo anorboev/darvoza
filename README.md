@@ -198,8 +198,7 @@ On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky messa
 
 ## Demo
 
-📹 **Video:** _3–5 minute two-role walkthrough — link coming with the launch post._
-<!-- TODO(publish): replace with the hosted darvoza-demo-final.mp4 link -->
+📹 **[Watch the two-role walkthrough (3:30)](https://www.youtube.com/watch?v=yTP3sA_1Oxw)** — captions included.
 
 The demo shows the same write tool (`wit_create_work_item`) **denied for a read-only analyst and
 allowed for an engineer** — each producing exactly one audit record — against a real Azure DevOps org.
@@ -305,6 +304,11 @@ file owner-writable only**, with the same care as the binary. Full argument in
   line itself, and both the command and its arguments come from the config file rather than from request
   input — so this is not an injection path — but a shell *is* involved, the gateway warns about it at
   startup, and on Windows the strict `ADO_ORG` allowlist is load-bearing rather than defense-in-depth.
+  That allowlist has one known gap, tracked as
+  [#17](https://github.com/anorboev/darvoza/issues/17): it is anchored `^…$`, and .NET's `$` also matches
+  before a trailing newline, so `ADO_ORG="org\n"` passes validation. Bounded — the newline can only be the
+  final character, so nothing attacker-controlled can follow it — but stated here rather than left to the
+  ADR, because this is the paragraph you would read before deciding an argument is safe.
   Non-Windows spawns directly. Details in
   [`docs/adr/ADR-0004`](docs/adr/ADR-0004-configurable-upstream-and-config-trust-boundary.md).
 - **A compromised upstream or host.** Darvoza trusts the upstream server it is configured to launch —

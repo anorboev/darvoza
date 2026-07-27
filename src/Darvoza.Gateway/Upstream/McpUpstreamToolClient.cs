@@ -4,9 +4,10 @@ using ModelContextProtocol.Protocol;
 namespace Darvoza.Gateway.Upstream;
 
 /// <summary>
-/// The single concrete <see cref="IUpstreamToolClient"/>: a transparent pass-through to the official
-/// Azure DevOps MCP server over an MCP client session. It OWNS that session and disposes it on
-/// shutdown (A01-T2b).
+/// The single concrete <see cref="IUpstreamToolClient"/>: a transparent pass-through to whatever MCP
+/// server the policy file configures, over an MCP client session. It OWNS that session and disposes it
+/// on shutdown (A01-T2b). Since A01-T7 / ADR-0004 that upstream is operator-configurable — the official
+/// Azure DevOps server is the default profile, not a coupling this class knows about.
 /// </summary>
 /// <remarks>
 /// <para>

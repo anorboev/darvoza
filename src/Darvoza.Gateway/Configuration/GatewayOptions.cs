@@ -130,7 +130,16 @@ public sealed partial class GatewayOptions
                | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0;
 
     // Conservative Azure DevOps org-name shape: alphanumeric, interior hyphens allowed, no
-    // leading/trailing hyphen, no whitespace/slashes/scheme. Bounds length to a sane 64 chars.
+    // leading/trailing hyphen, no interior whitespace/slashes/scheme. Bounds length to a sane 64 chars.
+    //
+    // This allowlist is LOAD-BEARING on Windows, not defense-in-depth: the pinned SDK wraps every
+    // Windows launch in `cmd.exe /c`, so this — not an absent shell — is what keeps ADO_ORG out of a
+    // shell re-parse. See ADR-0004 §"Ruling on G-10 #1". Do not relax it.
+    //
+    // KNOWN GAP (issue #17): `$` in .NET also matches before a trailing newline, so `"org\n"` passes.
+    // Bounded — the LF can only be final, so nothing attacker-controlled follows it. Fix is `\A…\z`
+    // plus a test case, tracked in #17. Stated here because this comment is what a maintainer reads
+    // before relaxing the pattern, and it must not claim more than the regex delivers.
     [GeneratedRegex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$")]
     private static partial Regex AdoOrgPattern();
 

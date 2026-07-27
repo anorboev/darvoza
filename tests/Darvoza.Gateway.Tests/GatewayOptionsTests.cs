@@ -36,6 +36,30 @@ public class GatewayOptionsTests
         Assert.False(GatewayOptions.IsValidAdoOrg(org));
     }
 
+    // Issue #17 — AdoOrgPattern is anchored `^…$`, and .NET's `$` also matches immediately before a
+    // SINGLE trailing newline. So `"org\n"` passes today; that gap is real and tracked in #17, and the
+    // `\A…\z` fix belongs there, not here.
+    //
+    // What THIS theory pins is the BOUND that gap rests on — the reason #17 is rated LOW rather than
+    // higher, and the reason ADR-0004's re-closure of G-10 #1 survives it: nothing attacker-controlled
+    // can follow that newline. Until now that claim lived only in a comment and in manual reasoning
+    // about the regex engine (@pr-reviewer, PR #19), which is exactly the prose-stronger-than-code
+    // pattern this PR exists to remove. Now it fails a test.
+    //
+    // Deliberately NOT pinning `"org\n"` as accepted: that would enshrine the defect and make #17's fix
+    // look like a regression. Pin the boundary, not the bug.
+    [Theory]
+    [InlineData("org\nwhoami")]     // text after the newline — the case that would matter
+    [InlineData("org\n&whoami")]    // a cmd.exe metacharacter after the newline
+    [InlineData("org\n\n")]         // a SECOND newline: only one trailing LF is tolerated
+    [InlineData("org\r\n")]         // CRLF — the CR is not in the allowed character class
+    [InlineData("\norg")]           // leading newline
+    [InlineData("org\n ")]          // even whitespace after the newline
+    public void IsValidAdoOrg_tolerates_no_content_after_a_trailing_newline(string org)
+    {
+        Assert.False(GatewayOptions.IsValidAdoOrg(org));
+    }
+
     [Theory]
     [InlineData("anorboev")]
     [InlineData("darvoza-demo")]
