@@ -146,9 +146,50 @@ applying its own caret-escaping (`EscapeArgumentString`, pattern `[&^><|]`) to e
   `upstream.args` is to avoid cmd.exe metacharacters.
 
 This is a **pre-existing property of the pinned SDK, not something A01-T7 introduced** — but A01-T7 both
-restates the claim and adds operator-controlled argv to the path, so it is corrected here. **Whether this
-reopens G-10 #1 as a gate is a call for the project owner**, recorded on PR #14 rather than decided by
-the implementing agent.
+restates the claim and adds operator-controlled argv to the path, so it is corrected here.
+
+### Ruling on G-10 #1 — reopened at LOW, then re-closed (owner, 2026-07-27)
+
+PR #14 left one question unanswered: does the above reopen **G-10 #1** (upstream argument injection),
+closed in A01-T6a? The owner's ruling, recorded here rather than left to a merged PR thread:
+
+**G-10 #1 is REOPENED at LOW and RE-CLOSED on a corrected rationale.** Both halves matter.
+
+**Why it had to be reopened.** A01-T6a closed the gate on the finding that launching `node npx-cli.js`
+instead of `npx.cmd` removed the shell from the Windows launch path. **That finding was false** — the SDK
+re-wraps every Windows launch in `cmd.exe /c` regardless. Closing it and moving on would leave the repo's
+own record asserting a reason that does not hold, and *the closure rationale is what a future maintainer
+reasons from*: someone reading "the allowlist is defense-in-depth" is exactly the person who relaxes
+`AdoOrgPattern`. A finding closed on a false rationale is not reliably closed, whatever its severity.
+`@security-reviewer` reached this independently and recommended the reopen; it is adopted.
+
+**Why LOW and not higher.** No untrusted input reaches upstream argv on either path. On the configured
+path the command *and* its arguments come from the same operator-controlled config file — the trust
+boundary this ADR establishes. On the `azure-devops` profile the only environment-derived argv element
+is `ADO_ORG`, and its strict allowlist is precisely the guard for the re-parse. The exposure was
+**mis-described, not unguarded**.
+
+**Why it is re-closed in the same breath.** The conditions `@security-reviewer` named for re-closing are
+met, and are enforced by tests rather than by comments:
+
+- The `ADO_ORG` allowlist is pinned in `GatewayOptionsTests` against every cmd.exe metacharacter
+  (`& | > < ^ % " ( ) ;`) plus the POSIX set — relaxing `AdoOrgPattern` now fails a **test**, not a code
+  review. This is what converts "load-bearing" from a claim into a guarantee.
+- Every input that reaches the shell on Windows is enumerated in the table below, `DARVOZA_NPX_CLI_JS`
+  included.
+- The retraction is stated wherever the old claim appeared: this ADR, the README security model, the code
+  comments, and the startup warning. No surviving instance (swept 2026-07-27).
+
+**What the ruling does not do.** It changes no code and blocks nothing — by design; the code was already
+correct and it was the reasoning that was wrong. Two items are tracked separately and are **not** covered
+by this re-closure: `A01-T7b-sdk-issue` (report the undocumented `cmd.exe /c` rewrite to the SDK
+maintainers) and `A01-T8-upstream-env` (the `azure-devops` profile still inheriting `DARVOZA_KEY_*` and
+`DARVOZA_FINGERPRINT_SALT` — see the known consequence stated above).
+
+**The counter-argument, stated fairly:** on Windows the mitigation is now a single narrow allowlist on one
+argument, which is close to the posture G-10 #1 was raised about in the first place. The reason that is
+accepted here is the test pin plus the narrowed input source, not the absence of a shell — the claim this
+ADR exists to retract.
 
 ### What A01-T7 does and does not change about that surface
 
