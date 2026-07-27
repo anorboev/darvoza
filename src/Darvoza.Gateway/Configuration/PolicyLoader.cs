@@ -70,7 +70,70 @@ public static class PolicyLoader
 
         var roleAllowlists = BuildRoleAllowlists(doc);
         var keyToRole = BuildKeyToRole(doc, roleAllowlists, source, envLookup);
-        return new Policy(keyToRole, roleAllowlists);
+        return new Policy(keyToRole, roleAllowlists, BuildUpstream(doc, source));
+    }
+
+    /// <summary>
+    /// Projects the optional <c>upstream:</c> section into <see cref="UpstreamOptions"/> (A01-T7),
+    /// failing fast on every ambiguous shape. Absent section = the azure-devops profile, so a config
+    /// file written before A01-T7 keeps its exact behaviour.
+    /// </summary>
+    private static UpstreamOptions BuildUpstream(PolicyDocument doc, string source)
+    {
+        if (doc.Upstream is not { } upstream)
+            return UpstreamOptions.AzureDevOps;
+
+        var hasProfile = !string.IsNullOrWhiteSpace(upstream.Profile);
+        var hasCommand = upstream.Command is not null;
+
+        if (hasProfile && hasCommand)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.profile' and 'upstream.command' are mutually " +
+                "exclusive — a profile IS a built-in command. Use a profile for a server Darvoza " +
+                "ships support for, or a command for your own.");
+        }
+
+        if (!hasCommand)
+        {
+            return upstream.Profile == UpstreamOptions.AzureDevOpsProfile || !hasProfile
+                ? UpstreamOptions.AzureDevOps
+                : new UpstreamOptions { Profile = upstream.Profile! };
+        }
+
+        if (string.IsNullOrWhiteSpace(upstream.Command))
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.command' is empty. Name the executable to launch " +
+                "(it is passed to the process launcher as-is, never through a shell).");
+        }
+
+        return new UpstreamOptions
+        {
+            Command = upstream.Command,
+            Args = ParseUpstreamArgs(upstream.Args, source),
+        };
+    }
+
+    /// <summary>
+    /// Reads <c>upstream.args</c> as a LIST — one element per argv slot. A single string is rejected
+    /// rather than split: word-splitting a command line is precisely what a shell does, and not doing it
+    /// is what keeps the upstream launch free of shell parsing (G-10 #1 / Decision #17, ADR-0004).
+    /// </summary>
+    private static IReadOnlyList<string> ParseUpstreamArgs(object? args, string source)
+    {
+        if (args is null)
+            return [];
+
+        if (args is not IList<object> elements)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.args' must be a list, one element per argument " +
+                """(e.g. args: ["server.js", "--readonly"]). Darvoza never splits a command string """ +
+                "into arguments — that is the shell behaviour the upstream launch exists to avoid.");
+        }
+
+        return [.. elements.Select(element => element?.ToString() ?? string.Empty)];
     }
 
     private static Dictionary<string, IReadOnlySet<string>> BuildRoleAllowlists(PolicyDocument doc)

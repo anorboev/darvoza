@@ -13,6 +13,30 @@ internal sealed class PolicyDocument
 
     /// <summary>Role → allow-list definitions, keyed by role name.</summary>
     public Dictionary<string, PolicyRole> Roles { get; set; } = [];
+
+    /// <summary>Optional upstream-server selection (A01-T7). Absent = the built-in azure-devops profile.</summary>
+    public UpstreamSection? Upstream { get; set; }
+}
+
+/// <summary>
+/// Raw <c>upstream:</c> section (A01-T7): either a built-in <c>profile</c> or an explicit
+/// <c>command</c> + <c>args</c>. Validated and projected into <see cref="UpstreamOptions"/>.
+/// </summary>
+internal sealed class UpstreamSection
+{
+    /// <summary>Built-in profile name. Mutually exclusive with <see cref="Command"/>.</summary>
+    public string? Profile { get; set; }
+
+    /// <summary>Explicit executable to launch instead of a profile.</summary>
+    public string? Command { get; set; }
+
+    /// <summary>
+    /// Deliberately untyped so the loader can reject a SCALAR with a teaching message instead of
+    /// YamlDotNet's "expected SequenceStart" — the one config mistake that would otherwise invite
+    /// someone to "helpfully" split a command string, which is exactly the shell behaviour Darvoza
+    /// must never have (G-10 #1).
+    /// </summary>
+    public object? Args { get; set; }
 }
 
 /// <summary>A caller binding: the env var holding this caller's secret key, and the role it maps to.</summary>

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -30,12 +31,12 @@ namespace Darvoza.Gateway.Tests.E2E;
 /// <c>UpstreamConnectionInitializer</c> hosted service is removed so host startup never tries to connect.
 /// </para>
 /// <para>
-/// Pre-<c>Build()</c> env (set in the ctor, before the host builder runs the top-level program): a valid
-/// <c>ADO_ORG</c>, a dummy PAT (lets the stdio transport DESCRIPTOR build — it is never connected), the
-/// fixture policy path, and the two caller-key env vars the policy references. These are <b>throwaway test
-/// values</b> routed through the real process env only because the composition root reads
+/// Pre-<c>Build()</c> env (set in the ctor, before the host builder runs the top-level program): the fixture
+/// policy path, the two caller-key env vars the policy references, and the fingerprint salt. These are
+/// <b>throwaway test values</b> routed through the real process env only because the composition root reads
 /// <see cref="Environment.GetEnvironmentVariable(string)"/> directly (no config seam) — NEVER replicate this
-/// pattern for real credentials.
+/// pattern for real credentials. Since A01-T7 the fixture policy also selects its own upstream, so no
+/// <c>ADO_ORG</c>, no PAT, and no Node on <c>PATH</c> are required to boot the composition root (G-29).
 /// </para>
 /// </remarks>
 internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
@@ -64,6 +65,9 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     /// <summary>The audit sink — assert on <see cref="FakeAuditSink.Lines"/> (the exact JSONL bytes).</summary>
     internal FakeAuditSink Audit { get; } = new();
 
+    /// <summary>Every log record the real host emitted, so startup claims can be asserted by COUNT (A01-T7).</summary>
+    internal RecordingLogger Logs { get; } = new();
+
     /// <summary>
     /// The top-level <c>Program</c> reads ADO_ORG / the PAT / the policy path + caller-key env vars via
     /// <see cref="Environment.GetEnvironmentVariable(string)"/> BEFORE the host is built — there is no
@@ -78,9 +82,9 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
     {
         var env = new (string Key, string? Value)[]
         {
-            ("ADO_ORG", "darvoza-demo"),
-            ("AZURE_DEVOPS_EXT_PAT", "dummy-pat-never-connected"),
-            ("PERSONAL_ACCESS_TOKEN", null), // force the AZURE_DEVOPS_EXT_PAT path
+            // A01-T7 (G-29): the fixture policy configures its own upstream, so neither ADO_ORG nor a
+            // PAT is needed — the azure-devops profile is not in play — and, more usefully, the launch
+            // resolver no longer probes for node/npx, so `dotnet test` stops requiring Node on PATH.
             ("DARVOZA_POLICY_PATH", Path.Combine(AppContext.BaseDirectory, "fixtures", "policy.e2e.yaml")),
             ("DARVOZA_KEY_ANALYST", AnalystKey),
             ("DARVOZA_KEY_ENGINEER", EngineerKey),
@@ -104,6 +108,10 @@ internal sealed class DarvozaWebAppFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // A01-T7: capture the host's own logging so the startup diagnostics (the resolved upstream argv)
+        // can be asserted by count on the REAL composition root, not on a hand-called method.
+        builder.ConfigureLogging(logging => logging.AddProvider(new RecordingLoggerProvider(Logs)));
+
         builder.ConfigureTestServices(services =>
         {
             // 1. No upstream connect at startup — drop the hosted service that would spawn npx, and drop the

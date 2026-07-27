@@ -209,4 +209,42 @@ public sealed class LivePipelineE2ETests
         var line = factory.Audit.Lines[0];
         Assert.DoesNotContain("Demo work item", line);
     }
+
+    // --- A01-T7: the configured upstream, observed on the REAL composition root ---------------------
+
+    [Fact]
+    public async Task Startup_states_the_resolved_upstream_argv_exactly_once()
+    {
+        // A COUNT assertion, not a contains: an operator reading the log must be able to answer "which
+        // server is this gateway in front of?" — and a duplicated line would mean the resolution ran
+        // more than once, which for a process launch is exactly the thing worth noticing.
+        await using var factory = new DarvozaWebAppFactory();
+        await using var client = await factory.CreateMcpClientAsync(DarvozaWebAppFactory.EngineerKey);
+        await client.CallToolAsync(ReadTool, WorkItemArgs());
+
+        var launchLines = factory.Logs.Records
+            .Where(record => record.Message.Contains("Upstream MCP server:"))
+            .ToArray();
+
+        Assert.Single(launchLines);
+        Assert.Contains("darvoza-e2e-stub-upstream", launchLines[0].Message);
+        // Rendered as a JSON array, so argv element boundaries survive into the log.
+        Assert.Contains("""["--never-launched"]""", launchLines[0].Message);
+    }
+
+    [Fact]
+    public async Task The_configured_upstream_from_the_policy_file_is_what_the_host_resolved()
+    {
+        // The claim "governance gateway in front of ANY MCP server" made observable end to end: the
+        // fixture policy names a non-Azure-DevOps command, and the real composition root — which still
+        // fails fast on a bad policy, still enforces deny-by-default, still audits — booted on it with
+        // no ADO_ORG and no PAT in the environment at all.
+        await using var factory = new DarvozaWebAppFactory();
+
+        var launchLine = Assert.Single(
+            factory.Logs.Records, record => record.Message.Contains("Upstream MCP server:"));
+
+        Assert.DoesNotContain("@azure-devops/mcp", launchLine.Message);
+        Assert.DoesNotContain("npx", launchLine.Message);
+    }
 }

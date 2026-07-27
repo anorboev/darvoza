@@ -28,13 +28,31 @@ public sealed class Policy
 
     /// <param name="keyToRole">Resolved caller secret-key value → role name.</param>
     /// <param name="roleAllowlists">Role name → the set of tool names that role may use.</param>
+    /// <param name="upstream">Which MCP server to govern (A01-T7); defaults to the azure-devops profile.</param>
     public Policy(
         IReadOnlyDictionary<string, string> keyToRole,
-        IReadOnlyDictionary<string, IReadOnlySet<string>> roleAllowlists)
+        IReadOnlyDictionary<string, IReadOnlySet<string>> roleAllowlists,
+        UpstreamOptions? upstream = null)
     {
         _entries = keyToRole.Select(pair => (KeyDigest(pair.Key), pair.Value)).ToArray();
         _roleAllowlists = roleAllowlists;
+        Upstream = upstream ?? UpstreamOptions.AzureDevOps;
     }
+
+    /// <summary>
+    /// The upstream MCP server this policy governs (A01-T7). The config file is the only source — see
+    /// <see cref="UpstreamOptions"/> and ADR-0004 for the trust-boundary argument.
+    /// </summary>
+    public UpstreamOptions Upstream { get; }
+
+    /// <summary>
+    /// Every tool name allow-listed by any role, deduplicated (A01-T7). Used at startup to report
+    /// allow-list entries the connected upstream does not actually offer — a WARNING, never fatal:
+    /// deny-by-default makes an absent tool inert, so the failure mode is "more closed than intended",
+    /// and upstream tool names genuinely drift between versions (G-20).
+    /// </summary>
+    public IReadOnlySet<string> AllAllowlistedTools =>
+        _roleAllowlists.Values.SelectMany(tools => tools).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Digest storage seam for tests: one 32-byte SHA-256 digest per caller, no raw keys.</summary>
     internal IReadOnlyList<(byte[] Digest, string Role)> DigestEntries => _entries;

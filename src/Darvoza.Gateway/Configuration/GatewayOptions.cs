@@ -40,8 +40,12 @@ public sealed partial class GatewayOptions
     /// <summary>Optional environment variable configuring the audit-fingerprint salt (A01-T6e).</summary>
     public const string FingerprintSaltEnvVar = "DARVOZA_FINGERPRINT_SALT";
 
-    /// <summary>The validated Azure DevOps organization name (positional arg to the upstream server).</summary>
-    public required string AdoOrg { get; init; }
+    /// <summary>
+    /// The validated Azure DevOps organization name (positional arg to the upstream server), or
+    /// <c>null</c> when the operator configured a non-Azure-DevOps upstream (A01-T7) — an ADO org is
+    /// meaningless for a server that is not Azure DevOps.
+    /// </summary>
+    public string? AdoOrg { get; init; }
 
     /// <summary>
     /// Resolves the policy file path. Precedence: <see cref="PolicyPathEnvVar"/> if set, else a local

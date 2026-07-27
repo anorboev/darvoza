@@ -2,6 +2,14 @@
 # Minimal two-role shape the live-pipeline test drives: analyst is read-only, engineer adds one write.
 # Key VALUES come from env vars the test sets (DARVOZA_KEY_ANALYST / DARVOZA_KEY_ENGINEER) — never here.
 
+# A01-T7 (CLOSES G-29): a configured upstream means the resolver does NO node/npx discovery, so booting
+# the real composition root no longer requires Node on PATH just to run `dotnet test`. The command is
+# never launched — the e2e replaces the upstream LEAF with FakeUpstreamToolClient and drops the connect
+# hosted service — so this only has to build a transport DESCRIPTOR.
+upstream:
+  command: darvoza-e2e-stub-upstream
+  args: ["--never-launched"]
+
 callers:
   - keyEnv: DARVOZA_KEY_ANALYST
     role: analyst
