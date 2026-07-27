@@ -162,8 +162,13 @@ applying its own caret-escaping (`EscapeArgumentString`, pattern `[&^><|]`) to e
 - The pinned `ModelContextProtocol.Core` 1.4.0 assembly contains **exactly one** `cmd.exe` string
   literal, consistent with the single assignment above.
 
-Note what the two issues have in common: both report it as a *functional* bug, and neither raises the
-argument-handling consequence. That is the gap `A01-T7b-sdk-issue` addresses.
+Note what the two issues have in common: both report it as a *functional* bug — the server fails to launch
+— and neither raises the argument-handling consequence. We filed that gap upstream as
+[`csharp-sdk#1751`](https://github.com/modelcontextprotocol/csharp-sdk/issues/1751), asking for the
+behaviour to be documented on the public API surface: passing `Arguments` as a string array is the standard
+.NET signal for "no shell interpretation", and on Windows that conclusion is false. To be explicit about
+credit — **the wrapping is not our discovery**; #594 reported it in 2025. What we contributed is the
+consequence for callers reasoning about argument safety, and our own wrong conclusion as the worked example.
 
 This is a **pre-existing property of the pinned SDK, not something A01-T7 introduced** — but A01-T7 both
 restates the claim and adds operator-controlled argv to the path, so it is corrected here.
