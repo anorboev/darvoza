@@ -129,11 +129,21 @@ public static class PolicyLoader
                 "builds a command line out of it).");
         }
 
+        var passEnv = ParseUpstreamStringList(upstream.PassEnv, "upstream.passEnv", source);
+        foreach (var name in passEnv.Where(UpstreamOptions.IsDarvozaSecretVariable))
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.passEnv' may not forward '{name}' — that is one of " +
+                "Darvoza's own secrets (a caller key, the audit fingerprint salt, or the Azure DevOps " +
+                "PAT). Handing it to the upstream would let that server act as one of your callers or " +
+                "de-anonymize the audit trail. Give the upstream its own credential variable instead.");
+        }
+
         return new UpstreamOptions
         {
             Command = upstream.Command,
             Args = ParseUpstreamStringList(upstream.Args, "upstream.args", source),
-            PassEnv = ParseUpstreamStringList(upstream.PassEnv, "upstream.passEnv", source),
+            PassEnv = passEnv,
         };
     }
 

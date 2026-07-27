@@ -15,6 +15,22 @@ public class GatewayOptionsTests
     [InlineData("trailing-")]     // trailing hyphen
     [InlineData("has space")]     // whitespace inside
     [InlineData("https://dev.azure.com/org")] // a URL, not an org name
+    // A01-T7 (@security-reviewer): ADO_ORG is the one ENVIRONMENT-derived element of the azure-devops
+    // profile's argv, and the pinned SDK routes that argv through `cmd.exe /c` on Windows (ADR-0004).
+    // This allowlist is therefore the load-bearing mitigation there — not the absent shell A01-T6a
+    // believed it had achieved. Pinning every cmd.exe metacharacter so a future relaxation of
+    // AdoOrgPattern fails a TEST rather than depending on someone reading a comment.
+    [InlineData("org&whoami")]    // command separator
+    [InlineData("org|whoami")]    // pipe
+    [InlineData("org>out.txt")]   // redirect out
+    [InlineData("org<in.txt")]    // redirect in
+    [InlineData("org^x")]         // cmd.exe escape character
+    [InlineData("org%PATH%")]     // cmd.exe variable expansion
+    [InlineData("org\"x")]        // quote
+    [InlineData("org(x)")]        // grouping
+    [InlineData("org;x")]         // separator
+    [InlineData("org$x")]         // POSIX expansion (non-Windows launch path)
+    [InlineData("org`x")]         // POSIX command substitution
     public void IsValidAdoOrg_rejects_malformed(string? org)
     {
         Assert.False(GatewayOptions.IsValidAdoOrg(org));

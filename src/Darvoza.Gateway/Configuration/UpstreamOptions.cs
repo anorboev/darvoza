@@ -65,6 +65,21 @@ public sealed record UpstreamOptions
     /// </summary>
     public IReadOnlyList<string> PassEnv { get; init; } = [];
 
+    /// <summary>
+    /// Environment variables <see cref="PassEnv"/> refuses to forward: Darvoza's own secrets. Forwarding
+    /// a caller key would let the upstream authenticate back into the front leg as that role, and the
+    /// fingerprint salt would let it de-anonymize the audit trail — undoing the isolation
+    /// <see cref="InheritEnvironment"/> provides. Nothing legitimate needs them, so they are refused
+    /// rather than merely discouraged (@security-reviewer on PR #14).
+    /// </summary>
+    public static bool IsDarvozaSecretVariable(string name) =>
+        name.StartsWith("DARVOZA_KEY_", StringComparison.OrdinalIgnoreCase)
+        || name.Equals(FingerprintSaltEnvVar, StringComparison.OrdinalIgnoreCase)
+        || name.Equals("PERSONAL_ACCESS_TOKEN", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("AZURE_DEVOPS_EXT_PAT", StringComparison.OrdinalIgnoreCase);
+
+    private const string FingerprintSaltEnvVar = "DARVOZA_FINGERPRINT_SALT";
+
     /// <summary>True when the operator opted in to an explicit non-profile upstream.</summary>
     public bool IsCustom => Command is not null;
 

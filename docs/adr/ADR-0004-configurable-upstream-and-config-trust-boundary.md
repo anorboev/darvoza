@@ -165,6 +165,22 @@ operator config file — a **narrower** input source than before, not a wider on
 and its arguments now come from the same trusted file, no untrusted input reaches the cmd.exe re-parse on
 the configured-upstream path.
 
+**Every input that reaches the shell on Windows**, so the list is auditable rather than implied:
+
+| Input | Source | Guard |
+|---|---|---|
+| `ADO_ORG` | environment | Strict allowlist `^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$` — **load-bearing on Windows**, pinned by metacharacter cases in `GatewayOptionsTests` |
+| `upstream.command` / `upstream.args` | config file | Trust boundary (this ADR); array-only, never split or joined |
+| `DARVOZA_NPX_CLI_JS` | environment | Existence check only. Not an escalation — anyone who can set it can already set `PATH` and thus own the `node` binary — but it *is* an environment-derived argv element, listed here for completeness |
+| The pinned package spec | source constant | Not operator-influenced |
+
+### The isolation's real bound
+
+The child runs as the **same user**, so a hostile upstream can read the parent's environment directly
+(`/proc/<ppid>/environ`, `PROCESS_VM_READ`) regardless of what it was launched with. Not passing the
+caller keys defeats accidental exposure and an upstream that merely reads its own `getenv`; it is **not a
+sandbox**. Genuinely untrusted servers belong under a separate user or in a container.
+
 ### Known properties an operator should know
 
 - **Credentials belong in `upstream.passEnv`, never in `upstream.args`.** The resolved argv is logged once

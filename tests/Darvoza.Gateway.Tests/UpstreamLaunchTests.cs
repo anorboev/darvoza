@@ -3,11 +3,15 @@ using Darvoza.Gateway.Upstream;
 
 namespace Darvoza.Gateway.Tests;
 
-// A01-T6a (G-10 #1) — the upstream launch must never route our argv through a batch file. On Windows a
-// bare "npx" resolves to npx.cmd, where .NET's argument escaping has known gaps, which made the strict
-// ADO_ORG allowlist the load-bearing mitigation. The spec builder instead launches node with npm's
-// npx-cli.js directly (no cmd.exe involvement), demoting the allowlist to defense-in-depth. These specs
-// pin the whole launch contract: command choice, argv shape, the version pin, and no-PAT-in-argv.
+// A01-T6a (G-10 #1) — the upstream launch must never route our argv through a BATCH FILE. On Windows a
+// bare "npx" resolves to npx.cmd, where .NET's argument escaping has known gaps, so the spec builder
+// launches node with npm's npx-cli.js directly instead. These specs pin the whole launch contract:
+// command choice, argv shape, the version pin, and no-PAT-in-argv.
+//
+// A01-T7 correction: that avoids the batch file's OWN re-parse but does NOT remove cmd.exe — the pinned
+// SDK wraps every Windows launch in `cmd.exe /c` (ADR-0004). An earlier version of this header claimed
+// "no cmd.exe involvement" and said the ADO_ORG allowlist was thereby demoted to defense-in-depth. Both
+// were wrong: on Windows that allowlist is LOAD-BEARING, and GatewayOptionsTests pins it accordingly.
 public class UpstreamLaunchTests
 {
     private const string NpxCli = @"C:\Program Files\nodejs\node_modules\npm\bin\npx-cli.js";

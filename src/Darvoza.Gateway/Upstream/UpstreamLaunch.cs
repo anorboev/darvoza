@@ -1,4 +1,5 @@
 using Darvoza.Gateway.Configuration;
+using ModelContextProtocol.Client;
 
 namespace Darvoza.Gateway.Upstream;
 
@@ -69,6 +70,55 @@ public static class UpstreamLaunch
                 "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
 
         return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
+    }
+
+    /// <summary>
+    /// Builds the stdio transport options for a resolved launch — command, argv, and the child's
+    /// environment. Pure given <paramref name="getEnv"/>, so the security-critical part (which
+    /// environment a configured upstream receives) is directly testable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Environment isolation.</b> A configured upstream runs with
+    /// <c>InheritEnvironmentVariables = false</c>, seeded from the SDK's curated allowlist (<c>PATH</c>
+    /// and friends — enough for a normal program to start) plus exactly the variables named in
+    /// <see cref="UpstreamOptions.PassEnv"/>. Without this it would inherit every
+    /// <c>DARVOZA_KEY_*</c> caller key and the audit fingerprint salt, and could authenticate back into
+    /// Darvoza's own front leg as any role (@security-reviewer HIGH on PR #14).
+    /// </para>
+    /// <para>
+    /// The built-in azure-devops profile inherits, unchanged: it is the pinned, trusted package, and
+    /// that is how its PAT reaches it (Decision #3).
+    /// </para>
+    /// </remarks>
+    public static StdioClientTransportOptions BuildTransportOptions(
+        UpstreamOptions options, UpstreamLaunchSpec launch, Func<string, string?> getEnv)
+    {
+        var childEnvironment = options.InheritEnvironment
+            ? []
+            : StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+
+        if (options.IsCustom)
+        {
+            foreach (var (name, value) in UpstreamOptions.BuildPassedEnvironment(options, getEnv))
+                childEnvironment[name] = value;
+        }
+        else
+        {
+            childEnvironment["PERSONAL_ACCESS_TOKEN"] = ResolveAzureDevOpsToken(getEnv);
+        }
+
+        return new StdioClientTransportOptions
+        {
+            Name = options.IsCustom ? "configured-upstream" : "azure-devops-upstream",
+            Command = launch.Command,
+            // Argv stays a COLLECTION on Darvoza's side of the boundary — never joined into a command
+            // line here or anywhere else. What the SDK does with it on Windows (`cmd.exe /c`) is
+            // documented in ADR-0004; that is why the ADO_ORG allowlist is load-bearing there.
+            Arguments = [.. launch.Arguments],
+            InheritEnvironmentVariables = options.InheritEnvironment,
+            EnvironmentVariables = childEnvironment,
+        };
     }
 
     /// <summary>

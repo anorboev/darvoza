@@ -306,7 +306,11 @@ file owner-writable only**, with the same care as the binary. Full argument in
   [`docs/adr/ADR-0004`](docs/adr/ADR-0004-configurable-upstream-and-config-trust-boundary.md).
 - **A compromised upstream or host.** Darvoza trusts the upstream server it is configured to launch —
   the pinned `@azure-devops/mcp` package by default, or whatever you point it at — and the audit trail is
-  only as private as the directory it lands in (see the ACL guidance above).
+  only as private as the directory it lands in (see the ACL guidance above). Note the real bound of the
+  environment isolation above: the child runs as the *same user*, so a **hostile** upstream can still read
+  the parent's environment directly (`/proc/<ppid>/environ` on Linux, `PROCESS_VM_READ` on Windows). The
+  isolation defeats accidental exposure and an upstream that merely reads its own `getenv`; it is not a
+  sandbox. Run genuinely untrusted servers under a separate user or container.
 - **Environment isolation for the *default* Azure DevOps profile.** A *configured* upstream is isolated
   (see the enforced-guarantees list above), but the built-in `azure-devops` profile still inherits the
   gateway's environment — so the official upstream also sees your caller keys and the audit fingerprint
