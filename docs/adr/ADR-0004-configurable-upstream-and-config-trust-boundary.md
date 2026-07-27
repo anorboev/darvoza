@@ -194,7 +194,18 @@ met, and are enforced by tests rather than by comments:
 
 - The `ADO_ORG` allowlist is pinned in `GatewayOptionsTests` against every cmd.exe metacharacter
   (`& | > < ^ % " ( ) ;`) plus the POSIX set — relaxing `AdoOrgPattern` now fails a **test**, not a code
-  review. This is what converts "load-bearing" from a claim into a guarantee.
+  review. That is what moves "load-bearing" from a comment to an enforced property.
+
+  **With one known gap, stated rather than glossed** (`@security-reviewer`, 2026-07-27, issue
+  [#17](https://github.com/anorboev/darvoza/issues/17)): the pattern is anchored `^…$`, and in .NET `$`
+  matches before a *trailing newline* as well as at end-of-input. So `ADO_ORG="darvoza-demo\n"` passes
+  validation and reaches argv with a raw LF, which the SDK's `[&^><|]` escaper does not cover. **The
+  re-closure survives this** — the regex tolerates the newline only as the final character, so nothing
+  attacker-controlled can follow it; everything after it on the command line is Darvoza's own fixed
+  `--authentication pat`, making the worst case a mangled launch, not command execution. But it means the
+  claim above is *one character* short of complete, and this ADR says so rather than letting the stronger
+  version stand. Fix (`\A…\z` plus the newline test case) is tracked in #17, deliberately **not** made
+  inside this close-out.
 - Every input that reaches the shell on Windows is enumerated in the table below, `DARVOZA_NPX_CLI_JS`
   included.
 - The retraction is stated wherever the old claim appeared: this ADR, the README security model, the code
