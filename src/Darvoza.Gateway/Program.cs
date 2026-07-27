@@ -1,4 +1,6 @@
-// Darvoza — MCP governance gateway for Azure DevOps (.NET), provider-agnostic (demo led by Claude).
+// Darvoza — MCP governance gateway (.NET) in front of ANY MCP server; agnostic on both axes: any MCP
+// client (CR-001) and, since A01-T7/ADR-0004, any MCP server. Azure DevOps is the default profile and
+// the demonstrated case, not the boundary. Demo led by Claude.
 // =================================================================================================
 // COMPOSITION ROOT (A01-T2 skeleton + A01-T3 policy + A01-T4 audit): config, DI registration, lifecycle,
 // and MCP server wiring. As of A01-T3 the gateway ENFORCES per-role policy (deny-by-default) via an
@@ -45,9 +47,13 @@ var policy = PolicyLoader.Load(GatewayOptions.ResolvePolicyPath(Directory.GetCur
 // since an ADO org is meaningless for a server that is not Azure DevOps. ADO_ORG becomes a positional
 // arg to that profile's launch. Since A01-T6a the Windows launch goes through `node npx-cli.js`
 // (UpstreamLaunch), which avoids npx.cmd's OWN re-parse. It does NOT remove cmd.exe: the pinned SDK
-// wraps every Windows launch in `cmd.exe /c` (ADR-0004). So this strict allowlist (no
-// quotes/spaces/metacharacters) is LOAD-BEARING on Windows and defense-in-depth elsewhere — it, not an
-// absent shell, is what keeps ADO_ORG safe. Do not relax it; GatewayOptionsTests pins the metacharacters.
+// wraps every Windows launch in `cmd.exe /c` (ADR-0004). So this strict allowlist is LOAD-BEARING on
+// Windows and defense-in-depth elsewhere — it, not an absent shell, is what keeps ADO_ORG safe. Do not
+// relax it; GatewayOptionsTests pins the cmd.exe and POSIX metacharacters.
+// KNOWN GAP (issue #17): the pattern is anchored `^…$`, and .NET's `$` also matches before a trailing
+// newline, so `ADO_ORG="org\n"` passes. Not exploitable — the LF can only be the FINAL character, so
+// nothing attacker-controlled can follow it — but do not read this comment as "every character is
+// excluded". The `\A…\z` fix is tracked in #17.
 string? adoOrg = null;
 if (policy.Upstream is { IsCustom: false, Profile: UpstreamOptions.AzureDevOpsProfile })
 {
