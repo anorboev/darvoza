@@ -70,7 +70,112 @@ public static class PolicyLoader
 
         var roleAllowlists = BuildRoleAllowlists(doc);
         var keyToRole = BuildKeyToRole(doc, roleAllowlists, source, envLookup);
-        return new Policy(keyToRole, roleAllowlists);
+        return new Policy(keyToRole, roleAllowlists, BuildUpstream(doc, source));
+    }
+
+    /// <summary>
+    /// Projects the optional <c>upstream:</c> section into <see cref="UpstreamOptions"/> (A01-T7),
+    /// failing fast on every ambiguous shape. Absent section = the azure-devops profile, so a config
+    /// file written before A01-T7 keeps its exact behaviour.
+    /// </summary>
+    private static UpstreamOptions BuildUpstream(PolicyDocument doc, string source)
+    {
+        if (doc.Upstream is not { } upstream)
+            return UpstreamOptions.AzureDevOps;
+
+        var hasProfile = upstream.Profile is not null;
+        var hasCommand = upstream.Command is not null;
+
+        if (hasProfile && hasCommand)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.profile' and 'upstream.command' are mutually " +
+                "exclusive — a profile IS a built-in command. Use a profile for a server Darvoza " +
+                "ships support for, or a command for your own.");
+        }
+
+        if (!hasCommand)
+        {
+            // A present-but-blank profile is an operator mistake, not a request for the default: a
+            // typo'd profile already failed fast, so a whitespace one should not quietly select a
+            // different server (@pr-reviewer MINOR, @security-reviewer LOW).
+            if (hasProfile && string.IsNullOrWhiteSpace(upstream.Profile))
+            {
+                throw new InvalidOperationException(
+                    $"Policy file '{source}': 'upstream.profile' is blank. Name a profile " +
+                    $"('{UpstreamOptions.AzureDevOpsProfile}'), or remove the key for the default.");
+            }
+
+            // Args/passEnv only mean something alongside a command. Silently dropping them would leave
+            // the gateway running happily against the WRONG server (@pr-reviewer MAJOR).
+            if (upstream.Args is not null || upstream.PassEnv is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Policy file '{source}': 'upstream.args' and 'upstream.passEnv' require " +
+                    "'upstream.command'. A built-in profile supplies its own arguments and inherits " +
+                    "the gateway's environment.");
+            }
+
+            return !hasProfile || upstream.Profile == UpstreamOptions.AzureDevOpsProfile
+                ? UpstreamOptions.AzureDevOps
+                : new UpstreamOptions { Profile = upstream.Profile! };
+        }
+
+        if (string.IsNullOrWhiteSpace(upstream.Command))
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': 'upstream.command' is empty. Name the executable to launch " +
+                "(Darvoza passes it to the process launcher as a command plus an argv array, and never " +
+                "builds a command line out of it).");
+        }
+
+        return new UpstreamOptions
+        {
+            Command = upstream.Command,
+            Args = ParseUpstreamStringList(upstream.Args, "upstream.args", source),
+            PassEnv = ParseUpstreamStringList(upstream.PassEnv, "upstream.passEnv", source),
+        };
+    }
+
+    /// <summary>
+    /// Reads an upstream string list — one element per argv slot for <c>args</c>, one variable name per
+    /// element for <c>passEnv</c>. A single string is rejected rather than split: word-splitting a
+    /// command line is precisely what a shell does, and Darvoza does it nowhere (ADR-0004).
+    /// </summary>
+    /// <remarks>
+    /// Elements must be scalars. A nested sequence or map would otherwise reach argv as the CLR type
+    /// name via <c>ToString()</c> — silent garbage where the surrounding validation promises fail-fast
+    /// (@pr-reviewer MAJOR on PR #14). YamlDotNet yields plain scalars as <see cref="string"/>, so an
+    /// unquoted <c>8080</c> or <c>true</c> arrives as text and is accepted as written.
+    /// </remarks>
+    private static IReadOnlyList<string> ParseUpstreamStringList(object? value, string key, string source)
+    {
+        if (value is null)
+            return [];
+
+        if (value is not IList<object> elements)
+        {
+            throw new InvalidOperationException(
+                $"Policy file '{source}': '{key}' must be a list, one element per entry " +
+                """(e.g. args: ["server.js", "--readonly"]). Darvoza never splits a string into """ +
+                "multiple entries — that is the shell behaviour the upstream launch exists to avoid.");
+        }
+
+        var parsed = new List<string>(elements.Count);
+        foreach (var element in elements)
+        {
+            if (element is not string text)
+            {
+                throw new InvalidOperationException(
+                    $"Policy file '{source}': every entry in '{key}' must be a single scalar value; " +
+                    $"found {(element is null ? "an empty entry" : "a nested list or map")}. Quote the " +
+                    "value if it contains YAML punctuation.");
+            }
+
+            parsed.Add(text);
+        }
+
+        return parsed;
     }
 
     private static Dictionary<string, IReadOnlySet<string>> BuildRoleAllowlists(PolicyDocument doc)

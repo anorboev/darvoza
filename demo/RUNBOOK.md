@@ -24,6 +24,11 @@ upstream; this runbook drives the **real** Azure DevOps org.
 > Create the PAT in Azure DevOps → **User settings → Personal access tokens**. Keep it to Work-Items
 > Read & Write so the demo's blast radius is exactly the story you're telling.
 
+> **Governing a different MCP server?** Everything below uses Darvoza's default Azure DevOps upstream,
+> so it needs Node, an org, and a PAT. Pointing the gateway at another MCP server is a `policy.yaml`
+> change and needs none of them — see **Use it with another MCP server** in the
+> [README](../README.md#use-it-with-another-mcp-server).
+
 ---
 
 ## 1. Configure the gateway (~3 min)
