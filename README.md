@@ -198,8 +198,7 @@ On a policy denial, `decision` is `"deny"`, `reason` carries the non-leaky messa
 
 ## Demo
 
-📹 **Video:** _3–5 minute two-role walkthrough — link coming with the launch post._
-<!-- TODO(publish): replace with the hosted darvoza-demo-final.mp4 link -->
+📹 **[Watch the two-role walkthrough (3:30)](https://www.youtube.com/watch?v=yTP3sA_1Oxw)** — captions included.
 
 The demo shows the same write tool (`wit_create_work_item`) **denied for a read-only analyst and
 allowed for an engineer** — each producing exactly one audit record — against a real Azure DevOps org.
