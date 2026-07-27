@@ -92,35 +92,87 @@ existing boundary explicit; it does not create one.**
 **The residual case it does not cover**, stated plainly because it is real: a deployment where the config
 file is writable by a party who *cannot* write the gateway's install directory — a config-management
 agent with a narrower ACL, a shared operations volume. There, config-driven process launch **is** a
-privilege escalation. Mitigation, and an operator responsibility: **keep the policy file owner-writable
-only**, with the same care as the binary.
+privilege escalation.
 
-### G-10 #1 (upstream argument injection) remains closed
+The mitigation is an operator responsibility, and it covers **three** inputs, not one — because each of
+them selects the file that supplies the upstream command:
 
-The gate rested on two structural properties, both preserved verbatim:
+1. **The policy file itself.** Keep it owner-writable only, with the same care as the binary.
+2. **`DARVOZA_POLICY_PATH`.** It chooses which file is read, and `DotEnvLoader` will set it from a `.env`
+   discovered by walking up from the working directory, with no key allowlist.
+3. **The working directory.** A `policy.local.yaml` dropped there takes precedence over `policy.yaml`.
 
-1. **No shell and no batch file re-parses our argv.** The `azure-devops` profile still launches
-   `node npx-cli.js …` on Windows, never `npx.cmd`. A configured command is launched directly, so the
-   npx/batch path is not merely avoided — it is absent from that code path entirely.
-2. **Argv is an array end to end.** Nothing joins or splits it, at any layer.
+### Environment isolation for a configured upstream
 
-What changed is only *who supplies* argv, and it moved from partly environment-derived (`ADO_ORG`, which
-the strict allowlist in `GatewayOptions.IsValidAdoOrg` still guards as defense-in-depth) to an operator
-config file. That is a **narrower** input source than before, not a wider one.
+The gateway's own environment holds every `DARVOZA_KEY_*` caller key and `DARVOZA_FINGERPRINT_SALT`. A
+child that receives those could **authenticate back into Darvoza's front leg as any role** and
+de-anonymize the audit trail — defeating the guarantee the gateway exists to provide. So a configured
+upstream does **not** inherit it (`InheritEnvironmentVariables = false`): it starts from the SDK's curated
+default environment (`PATH`, `HOME`, system directories) plus exactly the variables named in
+`upstream.passEnv`. As with a caller's `keyEnv`, the config file carries variable **names**, never values,
+and an unset one fails startup rather than launching half-configured.
+
+The built-in `azure-devops` profile still inherits, unchanged from before A01-T7 — it is the pinned,
+trusted package, and that is how the PAT reaches it. **Known consequence, pre-existing and not fixed
+here:** the official Azure DevOps server therefore also sees the caller keys and the fingerprint salt.
+Narrowing that would change the demo's launch environment and belongs to its own task.
+
+### What the pinned SDK does at the spawn boundary (corrects an A01-T6a claim)
+
+A01-T6a concluded that launching `node npx-cli.js …` instead of `npx.cmd` removed the shell from the
+Windows launch path. **That conclusion was wrong**, and this ADR corrects it rather than repeating it.
+
+Verified by decompiling the pinned `ModelContextProtocol.Core` 1.4.0,
+`StdioClientTransport.ConnectAsync`:
+
+```csharp
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+    !string.Equals(Path.GetFileName(command), "cmd.exe", StringComparison.OrdinalIgnoreCase))
+{
+    args = ["/c", command, ..args];
+    command = "cmd.exe";
+}
+```
+
+On Windows the SDK rewrites **every** launch — `node` included — to `cmd.exe /c <command> <args…>`,
+applying its own caret-escaping (`EscapeArgumentString`, pattern `[&^><|]`) to each element. So:
+
+- **A shell does re-parse argv on Windows**, one layer below Darvoza. Bypassing `npx.cmd` avoided a
+  *second* re-parse (the batch file's own), which is a real improvement, but it did not remove cmd.exe.
+- **On Windows the strict `ADO_ORG` allowlist is therefore load-bearing, not defense-in-depth.** A01-T6a
+  and the code comments demoted it; that demotion is retracted here for Windows. On non-Windows the SDK
+  spawns directly and the demotion holds.
+- The gateway logs this at startup rather than leaving it implicit, and the guidance for
+  `upstream.args` is to avoid cmd.exe metacharacters.
+
+This is a **pre-existing property of the pinned SDK, not something A01-T7 introduced** — but A01-T7 both
+restates the claim and adds operator-controlled argv to the path, so it is corrected here. **Whether this
+reopens G-10 #1 as a gate is a call for the project owner**, recorded on PR #14 rather than decided by
+the implementing agent.
+
+### What A01-T7 does and does not change about that surface
+
+Preserved exactly:
+
+1. **Darvoza never builds a command line.** Argv is an `IReadOnlyList<string>` from the config file
+   through `UpstreamLaunchSpec` into `StdioClientTransportOptions.Arguments`; nothing in this repository
+   joins or splits it. A single-string `args` is rejected rather than word-split.
+2. **The `azure-devops` profile still launches `node npx-cli.js …`**, never `npx.cmd`, so it still avoids
+   the batch file's own re-parse.
+
+What changed is only *who supplies* argv, and it moved from partly environment-derived (`ADO_ORG`) to an
+operator config file — a **narrower** input source than before, not a wider one. Since both the command
+and its arguments now come from the same trusted file, no untrusted input reaches the cmd.exe re-parse on
+the configured-upstream path.
 
 ### Known properties an operator should know
 
-- **The upstream child inherits the gateway's environment.** That is how the Azure DevOps PAT reaches the
-  official server today, and it is unchanged. The consequence worth stating: a *configured* upstream also
-  inherits whatever else is in that environment, including an ADO PAT if one is set. Do not run a
-  third-party upstream in a process environment holding credentials it should not see. Isolating the
-  child's environment is deliberately **out of scope** for this change.
-- **Credentials belong in the environment, never in `upstream.args`.** The resolved argv is logged once
-  at startup, so a secret written into `args` lands in the logs.
-- **A Windows `.cmd`/`.bat` command produces a startup warning.** A process launcher runs it through
-  cmd.exe, where .NET's argument escaping has the known gaps A01-T6a bypassed. This is not an injection —
-  the operator supplies the command *and* the arguments from the same trusted file, so no untrusted input
-  reaches the re-parse — but the operator is told rather than left to discover it.
+- **Credentials belong in `upstream.passEnv`, never in `upstream.args`.** The resolved argv is logged once
+  at startup, so a secret written into `args` lands in the logs. This is a deliberate trade: the argv line
+  is the only way an operator can answer "which server is this gateway actually in front of?" from the
+  log, and the guidance is stated in the ADR, the README, and `policy.example.yaml`.
+- **On Windows, every launch passes through `cmd.exe /c`** — a property of the pinned SDK, not of the
+  command. Startup says so. See the SDK section above.
 
 ## Consequences
 

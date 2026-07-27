@@ -50,7 +50,7 @@ server is upstream — only the launch path ever did, and since A01-T7 that is c
   case) is `microsoft/azure-devops-mcp`, pinned npm **`@azure-devops/mcp@2.7.0`**. Launch contract for
   that profile: on Windows the gateway runs
   `node <npm>/bin/npx-cli.js -y @azure-devops/mcp@2.7.0 <org> --authentication pat` directly (never
-  `npx.cmd` — no batch file ever re-parses the arguments; set `DARVOZA_NPX_CLI_JS` for non-standard
+  `npx.cmd`, so the batch file's own re-parse is avoided; set `DARVOZA_NPX_CLI_JS` for non-standard
   npm layouts); elsewhere plain `npx` (a real binary). The PAT travels only in the child's
   environment, never in argv.
 - **Policy:** declarative `policy.yaml` — roles → tool allowlists, deny-by-default, caller→role via per-caller API key.
@@ -119,8 +119,9 @@ your own server, give it a command and its arguments:
 ```yaml
 # policy.yaml — governing some other stdio MCP server
 upstream:
-  command: node                                    # the executable, launched directly (no shell)
+  command: node                                    # the executable Darvoza launches
   args: ["/srv/my-mcp-server/index.js", "--readonly"]   # one list element per argument
+  passEnv: [MY_SERVER_TOKEN]                       # variable NAMES to forward; values stay in the env
 
 callers:
   - keyEnv: DARVOZA_KEY_ANALYST
@@ -139,9 +140,11 @@ Notes worth reading once:
 - **`args` is a list, one element per argument.** Darvoza never splits a command string into arguments —
   that word-splitting step is what a shell does, and not doing it is what keeps this launch path free of
   shell parsing. A single string is rejected at startup.
-- **Put credentials in the environment, not in `args`.** The upstream child inherits the gateway's
-  environment (that is how the Azure DevOps PAT reaches the official server). The resolved argv is
-  logged once at startup, so a secret in `args` lands in your logs.
+- **Put credentials in `passEnv`, not in `args`.** The resolved argv is logged once at startup, so a
+  secret in `args` lands in your logs. A configured upstream gets a curated environment plus exactly the
+  variables you name in `passEnv` — it does **not** inherit the gateway's environment, which holds your
+  caller keys and the audit fingerprint salt. An unset `passEnv` variable fails startup rather than
+  launching the server half-configured.
 - **Startup tells you when the policy and the server disagree.** Any allow-listed tool name the connected
   server does not offer produces one warning — useful when a tool gets renamed upstream. It is a warning,
   not a failure: deny-by-default makes an absent tool harmless, and a governance gateway should not fall
@@ -258,8 +261,13 @@ in public preview and its tool names/argument shapes drift between versions, so 
   unreachable upstream refuses to start the host — the gateway never starts open.
 - **The upstream command comes from the config file only.** Never from an environment variable, header,
   query string, or body — the launch is resolved before the web host is built, so no request can reach
-  it. Argv is passed as an array from the config file to the process launcher: nothing joins or splits
-  it, so no shell or batch file re-parses it.
+  it. Argv is passed as an array: **Darvoza** never joins or splits it. (What the MCP SDK does below that
+  on Windows is a documented non-goal — see below.)
+- **A configured upstream does not inherit the gateway's environment.** It would otherwise receive every
+  caller key and the audit fingerprint salt, letting a third-party server authenticate back into the
+  front leg as any role. It gets a curated default environment plus exactly the variables named in
+  `upstream.passEnv` (names in the file, values from the environment). The default Azure DevOps profile
+  still inherits — it is the pinned, trusted package.
 
 **The config file is a trust boundary.**
 
@@ -288,6 +296,13 @@ file owner-writable only**, with the same care as the binary. Full argument in
   assumption; an explicit follow-up for any wider deployment).
 - **Prompt injection / content safety.** Tool *results* pass through unmodified — a malicious work
   item description reaches the client. Governance here is about *which tools run*, not what they return.
+- **A shell in the launch path on Windows.** The pinned MCP C# SDK rewrites every stdio launch to
+  `cmd.exe /c <command> <args…>` on Windows (it applies its own escaping). Darvoza never builds a command
+  line itself, and both the command and its arguments come from the config file rather than from request
+  input — so this is not an injection path — but a shell *is* involved, the gateway warns about it at
+  startup, and on Windows the strict `ADO_ORG` allowlist is load-bearing rather than defense-in-depth.
+  Non-Windows spawns directly. Details in
+  [`docs/adr/ADR-0004`](docs/adr/ADR-0004-configurable-upstream-and-config-trust-boundary.md).
 - **A compromised upstream or host.** Darvoza trusts the upstream server it is configured to launch —
   the pinned `@azure-devops/mcp` package by default, or whatever you point it at — and the audit trail is
   only as private as the directory it lands in (see the ACL guidance above). The upstream child inherits

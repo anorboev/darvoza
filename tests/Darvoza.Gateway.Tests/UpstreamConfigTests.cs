@@ -169,6 +169,135 @@ public class UpstreamConfigTests
         Assert.Empty(spec.Arguments);
     }
 
+    // --- @pr-reviewer: ambiguous config shapes must fail fast, as BuildUpstream's own doc claims -----
+
+    [Fact]
+    public void Args_without_a_command_fail_fast_instead_of_being_silently_discarded()
+    {
+        // Deleting the 'command:' line from an upstream block is an easy slip. Before this fix the args
+        // were dropped and the gateway silently launched Azure DevOps instead — the worst outcome, since
+        // the operator gets a working gateway pointed at the wrong server.
+        var ex = Assert.Throws<InvalidOperationException>(() => Parse("""
+            upstream:
+              args: ["--readonly"]
+            """));
+
+        Assert.Contains("upstream.command", ex.Message);
+    }
+
+    [Fact]
+    public void A_nested_list_inside_args_fails_fast_instead_of_stringifying_to_garbage()
+    {
+        // Without this, the element reaches argv as "System.Collections.Generic.List`1[System.Object]".
+        var ex = Assert.Throws<InvalidOperationException>(() => Parse("""
+            upstream:
+              command: node
+              args: [["a", "b"], "c"]
+            """));
+
+        Assert.Contains("upstream.args", ex.Message);
+    }
+
+    [Fact]
+    public void A_present_but_blank_profile_fails_fast_rather_than_silently_defaulting()
+    {
+        // A typo'd profile already failed fast; a whitespace one quietly selected Azure DevOps. Same
+        // operator mistake, so it deserves the same answer.
+        var ex = Assert.Throws<InvalidOperationException>(() => Parse("""
+            upstream:
+              profile: "   "
+            """));
+
+        Assert.Contains("upstream.profile", ex.Message);
+    }
+
+    // --- @security-reviewer HIGH: a configured upstream must not inherit the gateway's secrets -------
+
+    [Fact]
+    public void A_configured_upstream_does_not_inherit_the_gateway_environment_by_default()
+    {
+        var policy = Parse("""
+            upstream:
+              command: some-third-party-server
+            """);
+
+        Assert.False(policy.Upstream.InheritEnvironment);
+        Assert.Empty(policy.Upstream.PassEnv);
+    }
+
+    [Fact]
+    public void The_azure_devops_profile_still_inherits_so_the_demo_path_is_unchanged()
+    {
+        Assert.True(UpstreamOptions.AzureDevOps.InheritEnvironment);
+    }
+
+    [Fact]
+    public void PassEnv_names_variables_to_forward_and_never_carries_their_values()
+    {
+        // Same idiom as 'keyEnv' throughout this project: the config file names an environment variable,
+        // the VALUE is read from the environment and never written in the file.
+        var policy = Parse("""
+            upstream:
+              command: some-third-party-server
+              passEnv: [MY_SERVER_TOKEN, MY_SERVER_URL]
+            """);
+
+        Assert.Equal(["MY_SERVER_TOKEN", "MY_SERVER_URL"], policy.Upstream.PassEnv);
+    }
+
+    [Fact]
+    public void PassEnv_is_rejected_for_a_profile_upstream_that_inherits_everything_anyway()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => Parse("""
+            upstream:
+              profile: azure-devops
+              passEnv: [SOMETHING]
+            """));
+
+        Assert.Contains("passEnv", ex.Message);
+    }
+
+    [Fact]
+    public void The_forwarded_child_environment_contains_only_the_named_variables()
+    {
+        var policy = Parse("""
+            upstream:
+              command: some-third-party-server
+              passEnv: [MY_SERVER_TOKEN]
+            """);
+
+        var child = UpstreamOptions.BuildPassedEnvironment(
+            policy.Upstream,
+            key => key switch
+            {
+                "MY_SERVER_TOKEN" => "token-value",
+                "DARVOZA_KEY_ANALYST" => "caller-key-that-must-not-travel",
+                "DARVOZA_FINGERPRINT_SALT" => "salt-that-must-not-travel",
+                "AZURE_DEVOPS_EXT_PAT" => "pat-that-must-not-travel",
+                _ => null,
+            });
+
+        Assert.Equal(["MY_SERVER_TOKEN"], child.Keys);
+        Assert.Equal("token-value", child["MY_SERVER_TOKEN"]);
+    }
+
+    [Fact]
+    public void An_unset_passEnv_variable_fails_fast_rather_than_launching_half_configured()
+    {
+        // Matches the loader's posture for a caller whose keyEnv is unset: refuse to start rather than
+        // hand the upstream a silently-missing credential and fail on the first call instead.
+        var policy = Parse("""
+            upstream:
+              command: some-third-party-server
+              passEnv: [MISSING_TOKEN]
+            """);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => UpstreamOptions.BuildPassedEnvironment(policy.Upstream, _ => null));
+
+        Assert.Contains("MISSING_TOKEN", ex.Message);
+    }
+
     [Fact]
     public void The_shipped_policy_example_still_resolves_to_the_default_azure_devops_upstream()
     {
@@ -193,16 +322,20 @@ public class UpstreamConfigTests
     }
 
     [Theory]
-    [InlineData("wrapper.cmd", true)]
-    [InlineData("wrapper.BAT", true)]
-    [InlineData("node", false)]
-    [InlineData("server.exe", false)]
-    public void Windows_batch_commands_are_identified_so_startup_can_warn(string command, bool isBatch)
+    // On Windows the pinned SDK wraps EVERY command in `cmd.exe /c` — including plain `node`, which is
+    // what A01-T6a switched to in order to escape `npx.cmd`. The predicate this replaces matched only a
+    // literal .cmd/.bat suffix, so it missed `npx` (PATHEXT-resolved) AND implied everything else was
+    // shell-free. Both were wrong; see ADR-0004 §"What the pinned SDK does at the spawn boundary".
+    [InlineData(true, "node", true)]
+    [InlineData(true, "npx", true)]
+    [InlineData(true, "wrapper.cmd", true)]
+    [InlineData(true, "server.exe", true)]
+    [InlineData(true, @"C:\Windows\System32\cmd.exe", false)]
+    [InlineData(false, "node", false)]
+    [InlineData(false, "npx", false)]
+    public void The_pinned_SDK_routes_windows_launches_through_cmd_exe(
+        bool isWindows, string command, bool throughShell)
     {
-        // Not a gate failure — the operator supplies the command AND the args from the same trusted file,
-        // so no untrusted input reaches the batch re-parse. But .NET's escaping for batch files has known
-        // gaps (the very reason A01-T6a bypassed npx.cmd), so the operator is told rather than left to
-        // discover it. See ADR-0004.
-        Assert.Equal(isBatch, UpstreamOptions.IsWindowsBatchCommand(command));
+        Assert.Equal(throughShell, UpstreamOptions.LaunchesThroughWindowsShell(isWindows, command));
     }
 }

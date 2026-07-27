@@ -86,6 +86,75 @@ public class UpstreamPolicyCheckTests
         Assert.Single(logger.Warnings, w => w.Contains("ghost_tool_two"));
     }
 
+    // --- The startup path itself (@pr-reviewer MAJOR / @test-skeptic MEDIUM: previously untested) -----
+    //
+    // These drive the exact delegate UpstreamConnectionInitializer hands over, so the behaviour that
+    // matters at startup — that a diagnostic can never become a new way for the host to fail — is
+    // asserted rather than asserted-about.
+
+    [Fact]
+    public async Task A_failing_tools_list_warns_and_does_NOT_fail_host_startup()
+    {
+        var logger = new RecordingLogger();
+
+        await UpstreamPolicyCheck.RunAsync(
+            logger,
+            PolicyWith(("analyst", ["wit_get_work_item"])),
+            _ => throw new InvalidOperationException("upstream refused tools/list"),
+            CancellationToken.None);
+
+        Assert.Single(logger.Warnings, w => w.Contains("cross-check"));
+    }
+
+    [Fact]
+    public async Task A_hanging_tools_list_cannot_stall_startup_indefinitely()
+    {
+        // The host's startup token has no timeout by default, so without an internal bound a connected-
+        // but-wedged upstream would hang boot forever with nothing in the log explaining why.
+        var logger = new RecordingLogger();
+
+        await UpstreamPolicyCheck.RunAsync(
+            logger,
+            PolicyWith(("analyst", ["wit_get_work_item"])),
+            async ct => { await Task.Delay(Timeout.Infinite, ct); return []; },
+            CancellationToken.None,
+            timeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.Single(logger.Warnings, w => w.Contains("cross-check"));
+    }
+
+    [Fact]
+    public async Task Host_shutdown_during_the_check_is_NOT_swallowed_as_a_warning()
+    {
+        // A cancelled START is the host tearing down, not an upstream defect. Reporting it as an
+        // upstream problem would be a misleading log line at exactly the wrong moment.
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var logger = new RecordingLogger();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => UpstreamPolicyCheck.RunAsync(
+            logger,
+            PolicyWith(("analyst", ["wit_get_work_item"])),
+            async ct => { await Task.Delay(Timeout.Infinite, ct); return []; },
+            cts.Token));
+
+        Assert.Empty(logger.Records);
+    }
+
+    [Fact]
+    public async Task A_successful_tools_list_produces_the_per_missing_tool_warnings()
+    {
+        var logger = new RecordingLogger();
+
+        await UpstreamPolicyCheck.RunAsync(
+            logger,
+            PolicyWith(("analyst", ["wit_get_work_item", "ghost_tool"])),
+            _ => Task.FromResult<IReadOnlyList<string>>(["wit_get_work_item"]),
+            CancellationToken.None);
+
+        Assert.Single(logger.Warnings, w => w.Contains("ghost_tool"));
+    }
+
     [Fact]
     public void A_fully_satisfied_policy_logs_nothing_at_all()
     {

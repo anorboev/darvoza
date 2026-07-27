@@ -244,6 +244,9 @@ public sealed class LivePipelineE2ETests
         var launchLine = Assert.Single(
             factory.Logs.Records, record => record.Message.Contains("Upstream MCP server:"));
 
+        // Positive assertion first, so this cannot pass against a degenerate/empty log line
+        // (@test-skeptic LOW on PR #14 — the negatives alone were satisfiable by nothing at all).
+        Assert.Contains("darvoza-e2e-stub-upstream", launchLine.Message);
         Assert.DoesNotContain("@azure-devops/mcp", launchLine.Message);
         Assert.DoesNotContain("npx", launchLine.Message);
     }

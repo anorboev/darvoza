@@ -8,19 +8,25 @@
 # To govern a DIFFERENT MCP server, give it a command and its arguments instead:
 #
 #   upstream:
-#     command: node                                       # launched directly — never through a shell
+#     command: node                                       # the executable Darvoza launches
 #     args: ["/srv/my-mcp-server/index.js", "--readonly"]  # a LIST: one element per argument
+#     passEnv: [MY_SERVER_TOKEN]                          # variable NAMES to forward (never values)
 #
 # Rules worth knowing:
-#   - 'profile' and 'command' are mutually exclusive; declaring both fails startup.
+#   - 'profile' and 'command' are mutually exclusive; declaring both fails startup. So does 'args' or
+#     'passEnv' without a 'command' — they would otherwise be silently ignored.
 #   - 'args' must be a list. A single string is REJECTED, never split on whitespace — that splitting
-#     step is what a shell does, and Darvoza's upstream launch deliberately has no shell in it.
-#   - Credentials go in the ENVIRONMENT, not in args. The upstream child inherits the gateway's
-#     environment (that is how the Azure DevOps PAT reaches the official server), and the resolved
-#     argv is written to the log once at startup — a secret in 'args' would land there.
+#     step is what a shell does, and Darvoza never does it.
+#   - Credentials go in 'passEnv', NOT in 'args': the resolved argv is written to the log once at
+#     startup, so a secret in 'args' would land there. A configured upstream does NOT inherit the
+#     gateway's environment (it holds your caller keys and the audit salt) — it gets a curated
+#     default environment plus exactly the variables named here. An unset one fails startup.
+#   - On Windows the MCP SDK launches every upstream via `cmd.exe /c`, so keep 'args' free of cmd
+#     metacharacters (& | > < ^). Darvoza never builds a command line itself. See docs/adr/ADR-0004.
 #   - Whoever can edit this file can already allow every tool to a role of their choosing, so naming
-#     the upstream command here grants no new authority over the gateway — but keep the file
-#     owner-writable only. See docs/adr/ADR-0004 for the full trust-boundary argument.
+#     the upstream command here grants no new authority over the gateway — but keep this file
+#     owner-writable only, and mind DARVOZA_POLICY_PATH and the working directory, which select WHICH
+#     file is read. See docs/adr/ADR-0004 for the full trust-boundary argument.
 # ---------------------------------------------------------------------------------------------------
 
 callers:

@@ -37,6 +37,12 @@ internal sealed class UpstreamSection
     /// must never have (G-10 #1).
     /// </summary>
     public object? Args { get; set; }
+
+    /// <summary>
+    /// Names of environment variables to forward to a configured upstream. Untyped for the same
+    /// fail-fast reason as <see cref="Args"/>.
+    /// </summary>
+    public object? PassEnv { get; set; }
 }
 
 /// <summary>A caller binding: the env var holding this caller's secret key, and the role it maps to.</summary>

@@ -6,22 +6,29 @@ namespace Darvoza.Gateway.Upstream;
 public sealed record UpstreamLaunchSpec(string Command, IReadOnlyList<string> Arguments);
 
 /// <summary>
-/// Builds the upstream launch spec WITHOUT routing argv through a batch file (A01-T6a, G-10 #1). Since
+/// Builds the upstream launch spec without routing argv through a BATCH FILE (A01-T6a, G-10 #1). Since
 /// A01-T7 the upstream is operator-selectable (<see cref="UpstreamOptions"/>): an explicit
 /// <c>command</c> + <c>args</c> from the config file, or the built-in <c>azure-devops</c> profile that
 /// remains the default. On Windows a bare <c>"npx"</c> resolves to <c>npx.cmd</c> — a cmd.exe batch
 /// script whose argument re-parsing has known .NET escaping gaps — so the profile launches <c>node</c>
-/// with npm's <c>npx-cli.js</c> directly instead: no shell or batch file ever re-parses our arguments.
-/// The strict <c>ADO_ORG</c> allowlist (<c>GatewayOptions.IsValidAdoOrg</c>) remains as defense-in-depth,
-/// no longer the load-bearing mitigation. On non-Windows, <c>npx</c> is a real binary and is used as-is.
+/// with npm's <c>npx-cli.js</c> directly instead, avoiding the batch file's OWN argument re-parse. The
+/// strict <c>ADO_ORG</c> allowlist (<c>GatewayOptions.IsValidAdoOrg</c>) remains load-bearing on Windows
+/// (see the correction below) and defense-in-depth elsewhere. On non-Windows, <c>npx</c> is a real
+/// binary and is used as-is.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why A01-T7 does not reopen G-10 #1.</b> That gate closed on two structural properties: no shell or
-/// batch file re-parses our argv, and argv is an array end to end. Both are preserved verbatim here.
-/// What changed is only who SUPPLIES argv, and it moved from partly env-derived (<c>ADO_ORG</c>) to an
-/// operator config file — a NARROWER input source, not a wider one. A custom command bypasses the
-/// npx/node path entirely, so the batch-file surface is absent rather than merely avoided. See ADR-0004.
+/// <b>Correction to an A01-T6a claim (see ADR-0004).</b> A01-T6a concluded that launching
+/// <c>node npx-cli.js</c> removed the shell from the Windows launch path. It did not: the pinned MCP SDK
+/// 1.4.0 rewrites <i>every</i> non-<c>cmd.exe</c> Windows launch to <c>cmd.exe /c &lt;command&gt;
+/// &lt;args…&gt;</c>. Avoiding <c>npx.cmd</c> still avoids a SECOND re-parse (the batch file's own), which
+/// is a real improvement — but on Windows the strict <c>ADO_ORG</c> allowlist is <b>load-bearing, not
+/// defense-in-depth</b>. On non-Windows the SDK spawns directly and the demotion holds.
+/// </para>
+/// <para>
+/// <b>What A01-T7 changes about that surface: only who SUPPLIES argv.</b> It moved from partly
+/// env-derived (<c>ADO_ORG</c>) to an operator config file — a NARROWER input source, not a wider one —
+/// and Darvoza still never builds a command line anywhere.
 /// </para>
 /// <para>
 /// <c>npx-cli.js</c> resolution (azure-devops profile only): an explicit <see cref="NpxCliPathEnvVar"/>
@@ -40,6 +47,31 @@ public static class UpstreamLaunch
     public const string NpxCliPathEnvVar = "DARVOZA_NPX_CLI_JS";
 
     /// <summary>
+    /// Resolves the credential the <c>azure-devops</c> profile's child reads from
+    /// <c>PERSONAL_ACCESS_TOKEN</c> (Decision #3). The upstream's <c>pat</c> mode expects
+    /// base64 of <c>"email:pat"</c>, so a pre-encoded <c>PERSONAL_ACCESS_TOKEN</c> is passed through and
+    /// a raw <c>AZURE_DEVOPS_EXT_PAT</c> is encoded in-process. Azure DevOps ignores the username, so
+    /// <c>"darvoza"</c> is an arbitrary fixed placeholder, not an operator identity.
+    /// </summary>
+    /// <remarks>
+    /// Pure so the encoding contract is directly testable — it previously had only incidental coverage
+    /// from the e2e booting the composition root, which A01-T7 removed (@test-skeptic on PR #14). The
+    /// token is returned, never stored on an app-lifetime object, preserving PAT-residency minimization.
+    /// </remarks>
+    public static string ResolveAzureDevOpsToken(Func<string, string?> getEnv)
+    {
+        var token = getEnv("PERSONAL_ACCESS_TOKEN");
+        if (!string.IsNullOrEmpty(token))
+            return token;
+
+        var rawPat = getEnv("AZURE_DEVOPS_EXT_PAT")
+            ?? throw new InvalidOperationException(
+                "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
+
+        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
+    }
+
+    /// <summary>
     /// Resolves the launch spec. Pure given the injected probes — unit-testable on any OS. The only
     /// environment this reads is the npx-cli override and <c>PATH</c>, and only for the azure-devops
     /// profile: the upstream command itself is never environment-derived (ADR-0004).
@@ -52,7 +84,7 @@ public static class UpstreamLaunch
         Func<string, bool> fileExists)
     {
         // A01-T7: an explicit operator command is launched verbatim — one argv element per configured
-        // arg, never joined, never split, no shell. No node/npx probing happens on this path at all.
+        // arg, never joined and never split by us. No node/npx probing happens on this path at all.
         if (options.IsCustom)
             return new UpstreamLaunchSpec(options.Command!, [.. options.Args]);
 

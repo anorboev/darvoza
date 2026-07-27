@@ -44,8 +44,8 @@ var policy = PolicyLoader.Load(GatewayOptions.ResolvePolicyPath(Directory.GetCur
 // T2c + T6a + T7: validate ADO_ORG shape fail-fast — but ONLY for the built-in azure-devops profile,
 // since an ADO org is meaningless for a server that is not Azure DevOps. ADO_ORG becomes a positional
 // arg to that profile's launch. Since A01-T6a the Windows launch goes through `node npx-cli.js`
-// (UpstreamLaunch), so no batch file (npx.cmd) ever re-parses our argv — that closed the G-10
-// arg-injection surface. This strict allowlist (no quotes/spaces/metacharacters) stays as
+// (UpstreamLaunch), which avoids npx.cmd's OWN re-parse. NOTE: it does not remove cmd.exe — the pinned
+// SDK wraps every Windows launch in `cmd.exe /c` (ADR-0004), so on Windows this strict allowlist (no quotes/spaces/metacharacters) stays as
 // defense-in-depth. Keep it strict.
 string? adoOrg = null;
 if (policy.Upstream is { IsCustom: false, Profile: UpstreamOptions.AzureDevOpsProfile })
@@ -154,14 +154,19 @@ app.Lifetime.ApplicationStarted.Register(() =>
         "Upstream MCP server: {UpstreamCommand} with argv {UpstreamArguments}",
         launch.Command, JsonSerializer.Serialize(launch.Arguments));
 
-    if (OperatingSystem.IsWindows() && UpstreamOptions.IsWindowsBatchCommand(launch.Command))
+    // T7 (@security-reviewer): say out loud that a shell IS in the launch path on Windows. Darvoza never
+    // builds a command line, but the pinned MCP SDK rewrites the launch to `cmd.exe /c <command> <args>`
+    // for every non-cmd.exe command on Windows. That is why the strict ADO_ORG allowlist stays
+    // load-bearing there, and why upstream.args should avoid cmd.exe metacharacters. See ADR-0004.
+    if (UpstreamOptions.LaunchesThroughWindowsShell(OperatingSystem.IsWindows(), launch.Command))
     {
         app.Logger.LogWarning(
-            "Configured upstream command {UpstreamCommand} is a Windows batch file, which a process " +
-            "launcher runs through cmd.exe — .NET's argument escaping for batch files has known gaps. " +
-            "Darvoza passes argv as an array and no untrusted input reaches it (both the command and " +
-            "its arguments come from your config file), but prefer the real executable where you can. " +
-            "See docs/adr/ADR-0004.", launch.Command);
+            "On Windows the MCP SDK launches the upstream via cmd.exe /c, so the arguments above pass " +
+            "through a shell before reaching {UpstreamCommand}. Darvoza never builds a command line " +
+            "itself and both the command and its arguments come from your config file, so this is not " +
+            "an injection path — but keep upstream.args free of cmd.exe metacharacters (& | > < ^), and " +
+            "note that on Windows the strict ADO_ORG allowlist is load-bearing rather than " +
+            "defense-in-depth. See docs/adr/ADR-0004.", launch.Command);
     }
 
     foreach (var url in app.Urls.Where(url => !GatewayOptions.IsLoopbackUrl(url)))
@@ -200,37 +205,48 @@ static PassthroughToolHandlers Handlers(IServiceProvider? services) =>
 
 static StdioClientTransport BuildUpstreamTransport(UpstreamOptions options, UpstreamLaunchSpec launch)
 {
-    // T7: only the azure-devops profile needs Darvoza to marshal a credential. A custom upstream's
-    // credentials are the operator's business and reach the child the same way they always have — by
-    // INHERITANCE of the gateway's own environment (the child process inherits it). That is why
-    // credentials belong in the environment and never in 'upstream.args', which is logged at startup.
-    var childEnvironment = new Dictionary<string, string?>();
-    if (!options.IsCustom)
-    {
-        // T2c: the @azure-devops/mcp "pat" mode reads PERSONAL_ACCESS_TOKEN = base64("email:pat").
-        // Accept a pre-encoded PERSONAL_ACCESS_TOKEN, or a raw PAT in AZURE_DEVOPS_EXT_PAT we encode
-        // in-process. The token is held only inside the child transport's environment.
-        var token = Environment.GetEnvironmentVariable("PERSONAL_ACCESS_TOKEN");
-        if (string.IsNullOrEmpty(token))
-        {
-            var rawPat = Environment.GetEnvironmentVariable("AZURE_DEVOPS_EXT_PAT")
-                ?? throw new InvalidOperationException(
-                    "Set PERSONAL_ACCESS_TOKEN (base64 of \"email:pat\") or AZURE_DEVOPS_EXT_PAT (raw PAT).");
-            // Basic-auth shape is "<username>:<pat>"; Azure DevOps ignores the username, so the literal
-            // "darvoza" is an arbitrary, fixed placeholder (Decision #3) — not an operator identity.
-            token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"darvoza:{rawPat}"));
-        }
+    // T7 (@security-reviewer HIGH): a CONFIGURED upstream does not inherit the gateway's environment.
+    // That environment holds every DARVOZA_KEY_* caller key and DARVOZA_FINGERPRINT_SALT — handing them
+    // to an operator-chosen third-party server would let it authenticate back into our own front leg as
+    // any role and de-anonymize the audit trail. It gets the SDK's curated defaults (PATH, HOME, system
+    // dirs) plus exactly the variables named in 'upstream.passEnv'. The built-in azure-devops profile
+    // still inherits: it is the pinned, trusted package, and this is its pre-A01-T7 behaviour.
+    // InheritEnvironmentVariables = false starts the child with an EMPTY environment, so a configured
+    // upstream is seeded from the SDK's curated allowlist (PATH, HOME, system dirs — enough for a normal
+    // program to start) and then given exactly the operator-named passEnv variables.
+    var childEnvironment = options.InheritEnvironment
+        ? []
+        : StdioClientTransportOptions.GetDefaultEnvironmentVariables();
 
-        childEnvironment["PERSONAL_ACCESS_TOKEN"] = token;
+    if (options.IsCustom)
+    {
+        foreach (var (name, value) in UpstreamOptions.BuildPassedEnvironment(
+            options, Environment.GetEnvironmentVariable))
+        {
+            childEnvironment[name] = value;
+        }
+    }
+    else
+    {
+        // T2c/Decision #3: the @azure-devops/mcp "pat" mode reads PERSONAL_ACCESS_TOKEN =
+        // base64("email:pat"). The encoding contract lives in UpstreamLaunch so it is directly testable;
+        // the token is held only inside the child transport's environment, never on an app-lifetime object.
+        childEnvironment["PERSONAL_ACCESS_TOKEN"] =
+            UpstreamLaunch.ResolveAzureDevOpsToken(Environment.GetEnvironmentVariable);
     }
 
     return new StdioClientTransport(new StdioClientTransportOptions
     {
         Name = options.IsCustom ? "configured-upstream" : "azure-devops-upstream",
         Command = launch.Command,
-        // Argv stays a COLLECTION from config file to process launch — never joined here or anywhere
-        // else, so no shell or batch file can re-parse it (G-10 #1 / Decision #17, ADR-0004).
+        // Argv stays a COLLECTION on Darvoza's side of the boundary — never joined into a command line
+        // here or anywhere else (ADR-0004). What the SDK then does with it on Windows is documented in
+        // ADR-0004 §"What the pinned SDK does at the spawn boundary": it wraps every command in
+        // `cmd.exe /c`, so a shell IS involved below this line. That is why the strict ADO_ORG allowlist
+        // remains load-bearing on Windows rather than defense-in-depth.
         Arguments = [.. launch.Arguments],
+        // Custom upstreams start from the SDK's curated environment, NOT the gateway's (see above).
+        InheritEnvironmentVariables = options.InheritEnvironment,
         EnvironmentVariables = childEnvironment,
     });
 }

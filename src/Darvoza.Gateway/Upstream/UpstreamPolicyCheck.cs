@@ -39,6 +39,47 @@ public static class UpstreamPolicyCheck
         return [.. policy.AllAllowlistedTools.Where(tool => !available.Contains(tool))];
     }
 
+    /// <summary>Default bound on the diagnostic's <c>tools/list</c> call — see <see cref="RunAsync"/>.</summary>
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Runs the whole startup diagnostic: list the upstream's tools, then warn about allow-list entries
+    /// it does not offer. <b>This can never fail host startup.</b>
+    /// </summary>
+    /// <remarks>
+    /// Two distinct failure modes are handled, because a diagnostic that takes the host down would be a
+    /// worse defect than the misconfiguration it reports. A <b>throwing</b> <c>tools/list</c> is caught
+    /// and warned about. A <b>hanging</b> one is bounded by <paramref name="timeout"/> — the generic
+    /// host's startup token has no timeout by default, so an upstream that connects but never answers
+    /// would otherwise wedge boot forever with nothing in the log to explain it.
+    /// <para>
+    /// Cancellation of <paramref name="ct"/> is deliberately NOT swallowed: that is the host shutting
+    /// down, not an upstream defect, and reporting it as one would be misleading.
+    /// </para>
+    /// </remarks>
+    public static async Task RunAsync(
+        ILogger logger,
+        Policy policy,
+        Func<CancellationToken, Task<IReadOnlyList<string>>> listToolNames,
+        CancellationToken ct,
+        TimeSpan? timeout = null)
+    {
+        try
+        {
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            bounded.CancelAfter(timeout ?? DefaultTimeout);
+
+            var toolNames = await listToolNames(bounded.Token);
+            WarnOnMissing(logger, policy, toolNames);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex,
+                "Could not cross-check the policy allow-list against the upstream's tool list. The " +
+                "gateway is running normally; only this startup diagnostic was skipped.");
+        }
+    }
+
     /// <summary>
     /// Logs exactly one warning per missing tool name, or nothing at all when the policy is fully
     /// satisfied by the connected upstream.

@@ -26,20 +26,15 @@ public sealed class UpstreamConnectionInitializer(
         await upstream.ConnectAsync(cancellationToken);
         logger.LogDebug("Upstream MCP session established.");
 
-        // A01-T7: a diagnostic, never a gate. It must not become a new way for startup to fail — the
-        // connect above is the fail-fast check; this only tells the operator their allow-list names
-        // tools this server does not have (see UpstreamPolicyCheck for why it warns rather than throws).
-        try
-        {
-            var tools = await upstream.ListToolsAsync(cancellationToken);
-            UpstreamPolicyCheck.WarnOnMissing(logger, policy, tools.Select(tool => tool.Name));
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex,
-                "Could not list the upstream's tools to cross-check the policy allow-list. The gateway " +
-                "is running; only this startup diagnostic was skipped.");
-        }
+        // A01-T7: a diagnostic, never a gate. The connect above is the fail-fast check; this only tells
+        // the operator their allow-list names tools this server does not have. All of the "must not
+        // become a new way for startup to fail" behaviour (throwing, hanging, host shutdown) lives in
+        // RunAsync, where it is directly tested — this line is only the wiring.
+        await UpstreamPolicyCheck.RunAsync(
+            logger,
+            policy,
+            async ct => (IReadOnlyList<string>)[.. (await upstream.ListToolsAsync(ct)).Select(t => t.Name)],
+            cancellationToken);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

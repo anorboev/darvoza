@@ -109,12 +109,14 @@ public class UpstreamLaunchTests
     }
 
     [Fact]
-    public void Configured_args_stay_separate_argv_elements_that_no_shell_could_reproduce()
+    public void Configured_args_stay_separate_argv_elements_through_darvozas_own_layer()
     {
-        // This is how "argv never passes through a shell" is ASSERTED rather than asserted-about. Each
-        // argument carries characters a shell would act on — a space (word splitting), quotes, a command
-        // separator, a glob, a variable reference. They survive as FOUR elements, byte-identical: any
-        // shell or batch re-parse on this path would split, unquote, expand, or concatenate them.
+        // SCOPE, stated honestly (@test-skeptic HIGH on PR #14): this asserts that DARVOZA never joins,
+        // splits, or rewrites argv — it is a lock against a future refactor doing so, and nothing more.
+        // It does NOT prove "argv never passes through a shell", because on Windows that claim is FALSE
+        // one layer below: the pinned MCP SDK rewrites every launch to `cmd.exe /c …` (ADR-0004,
+        // §"What the pinned SDK does at the spawn boundary"). The earlier version of this comment
+        // claimed the stronger property; that was an overclaim.
         string[] hostile = ["one two", "a'b\"c", "&& rm -rf /", "$HOME/*"];
 
         var spec = UpstreamLaunch.Resolve(
@@ -136,6 +138,57 @@ public class UpstreamLaunchTests
 
         Assert.Equal("my-mcp-server", spec.Command);
         Assert.Equal(["--readonly", "/srv/data"], spec.Arguments);
+    }
+
+    // --- Azure DevOps PAT marshalling (Decision #3) --------------------------------------------------
+    //
+    // @test-skeptic MEDIUM on PR #14: this had only INCIDENTAL coverage from the e2e booting the real
+    // composition root, and A01-T7's move to a configured e2e upstream removed it — production behaviour
+    // surviving with nothing testing it. Pulled out of Program.cs into a pure function and pinned here.
+
+    [Fact]
+    public void A_raw_pat_is_base64_encoded_as_the_basic_auth_shape_the_upstream_expects()
+    {
+        // The upstream's "pat" mode reads PERSONAL_ACCESS_TOKEN = base64("email:pat"). Azure DevOps
+        // ignores the username, so "darvoza" is a fixed placeholder, not an operator identity.
+        var token = UpstreamLaunch.ResolveAzureDevOpsToken(
+            key => key == "AZURE_DEVOPS_EXT_PAT" ? "raw-pat-value" : null);
+
+        Assert.Equal(
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("darvoza:raw-pat-value")),
+            token);
+    }
+
+    [Fact]
+    public void A_pre_encoded_personal_access_token_is_passed_through_untouched()
+    {
+        var token = UpstreamLaunch.ResolveAzureDevOpsToken(
+            key => key == "PERSONAL_ACCESS_TOKEN" ? "already-base64" : null);
+
+        Assert.Equal("already-base64", token);
+    }
+
+    [Fact]
+    public void A_pre_encoded_token_wins_over_a_raw_pat()
+    {
+        var token = UpstreamLaunch.ResolveAzureDevOpsToken(key => key switch
+        {
+            "PERSONAL_ACCESS_TOKEN" => "already-base64",
+            "AZURE_DEVOPS_EXT_PAT" => "raw-pat-value",
+            _ => null,
+        });
+
+        Assert.Equal("already-base64", token);
+    }
+
+    [Fact]
+    public void No_credential_at_all_fails_fast_naming_both_accepted_variables()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => UpstreamLaunch.ResolveAzureDevOpsToken(_ => null));
+
+        Assert.Contains("PERSONAL_ACCESS_TOKEN", ex.Message);
+        Assert.Contains("AZURE_DEVOPS_EXT_PAT", ex.Message);
     }
 
     [Fact]

@@ -20,9 +20,19 @@ namespace Darvoza.Gateway.Configuration;
 /// writable by a party who cannot write the gateway's binaries — keep it owner-writable only).
 /// </para>
 /// <para>
-/// <b>Credentials belong in the environment, never in <see cref="Args"/>.</b> The upstream child process
-/// inherits the gateway's environment, which is how the Azure DevOps PAT reaches it today (Decision #3).
-/// Argv is logged once at startup, so a secret written into <see cref="Args"/> would land in the logs.
+/// <b>Credentials belong in the environment, never in <see cref="Args"/>.</b> Argv is logged once at
+/// startup, so a secret written into <see cref="Args"/> would land in the logs. Name the variable in
+/// <see cref="PassEnv"/> instead — the same idiom as a caller's <c>keyEnv</c>: the config file carries
+/// the variable's NAME, never its value.
+/// </para>
+/// <para>
+/// <b>A configured upstream does not inherit the gateway's environment</b> (@security-reviewer HIGH on
+/// PR #14). That environment holds every <c>DARVOZA_KEY_*</c> caller key and
+/// <c>DARVOZA_FINGERPRINT_SALT</c>; handing them to an operator-chosen third-party server would let it
+/// authenticate back into Darvoza's own front leg as any role and de-anonymize the audit trail —
+/// defeating the per-role policy guarantee the gateway exists to provide. Custom upstreams therefore get
+/// the SDK's curated default environment plus exactly the variables named in <see cref="PassEnv"/>. The
+/// built-in azure-devops profile keeps inheriting, unchanged from before A01-T7.
 /// </para>
 /// </remarks>
 public sealed record UpstreamOptions
@@ -44,20 +54,71 @@ public sealed record UpstreamOptions
 
     /// <summary>
     /// Arguments for <see cref="Command"/>, as a collection. Each element is one argv slot — Darvoza never
-    /// joins these into a string and never splits one, so no shell parsing can occur (G-10 #1).
+    /// joins these into a string and never splits one. (On Windows the SDK still wraps the launch in
+    /// <c>cmd.exe /c</c> below this layer — see <see cref="LaunchesThroughWindowsShell"/> and ADR-0004.)
     /// </summary>
     public IReadOnlyList<string> Args { get; init; } = [];
+
+    /// <summary>
+    /// Names of environment variables to forward to a configured upstream — names only, never values
+    /// (the same contract as a caller's <c>keyEnv</c>). Empty for the built-in profile, which inherits.
+    /// </summary>
+    public IReadOnlyList<string> PassEnv { get; init; } = [];
 
     /// <summary>True when the operator opted in to an explicit non-profile upstream.</summary>
     public bool IsCustom => Command is not null;
 
     /// <summary>
-    /// True for a Windows command that a process launcher routes through <c>cmd.exe</c>. There is no
-    /// injection here — the operator supplies the command AND the args from the same trusted file, so no
-    /// untrusted input reaches the batch re-parse — but .NET's argument escaping for batch files has known
-    /// gaps, so startup says so out loud rather than leaving the operator to discover it (ADR-0004).
+    /// Whether the child process inherits the gateway's whole environment. True for the built-in
+    /// azure-devops profile (unchanged pre-A01-T7 behaviour — the official server is the trusted,
+    /// pinned package and the PAT reaches it this way). False for a configured upstream, which the
+    /// operator chose and Darvoza does not vouch for.
     /// </summary>
-    public static bool IsWindowsBatchCommand(string command) =>
-        command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
-        || command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
+    public bool InheritEnvironment => !IsCustom;
+
+    /// <summary>
+    /// Resolves <see cref="PassEnv"/> names to the values the child should receive. Fails fast on an
+    /// unset variable, matching the loader's posture for an unset caller <c>keyEnv</c>: refuse to start
+    /// rather than launch an upstream that is silently missing a credential.
+    /// </summary>
+    /// <param name="getEnv">Environment reader (injectable for tests).</param>
+    public static IReadOnlyDictionary<string, string?> BuildPassedEnvironment(
+        UpstreamOptions options, Func<string, string?> getEnv)
+    {
+        var resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var name in options.PassEnv)
+        {
+            var value = getEnv(name);
+            if (string.IsNullOrEmpty(value))
+            {
+                throw new InvalidOperationException(
+                    $"'upstream.passEnv' names environment variable '{name}', but it is unset/empty. " +
+                    "Set it, or remove it from passEnv — Darvoza refuses to start half-configured.");
+            }
+
+            resolved[name] = value;
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
+    /// True when the pinned MCP SDK will route this launch through <c>cmd.exe /c</c> — which on Windows
+    /// is <b>every</b> command except <c>cmd.exe</c> itself.
+    /// </summary>
+    /// <remarks>
+    /// This is not a property of the command; it is a property of the SDK. Verified against the pinned
+    /// <c>ModelContextProtocol.Core</c> 1.4.0: <c>StdioClientTransport.ConnectAsync</c> rewrites the
+    /// launch to <c>cmd.exe /c &lt;command&gt; &lt;args…&gt;</c> whenever
+    /// <c>IsOSPlatform(Windows) &amp;&amp; Path.GetFileName(command) != "cmd.exe"</c>.
+    /// <para>
+    /// An earlier version of this method warned only about a literal <c>.cmd</c>/<c>.bat</c> suffix. That
+    /// was doubly wrong — it missed extension-less commands that resolve through <c>PATHEXT</c> (such as
+    /// <c>npx</c> → <c>npx.cmd</c>, the exact case A01-T6a set out to avoid), and it implied every other
+    /// command was shell-free, which is not true on Windows for any command at all. See ADR-0004.
+    /// </para>
+    /// </remarks>
+    public static bool LaunchesThroughWindowsShell(bool isWindows, string command) =>
+        isWindows && !string.Equals(
+            Path.GetFileName(command), "cmd.exe", StringComparison.OrdinalIgnoreCase);
 }
