@@ -21,6 +21,9 @@
 #     startup, so a secret in 'args' would land there. A configured upstream does NOT inherit the
 #     gateway's environment (it holds your caller keys and the audit salt) — it gets a curated
 #     default environment plus exactly the variables named here. An unset one fails startup.
+#   - Darvoza REFUSES to forward its own secrets: naming DARVOZA_KEY_*, DARVOZA_FINGERPRINT_SALT,
+#     PERSONAL_ACCESS_TOKEN or AZURE_DEVOPS_EXT_PAT here fails startup. Handing an upstream a caller
+#     key would let it call back in as that role — undoing the isolation passEnv sits beside.
 #   - On Windows the MCP SDK launches every upstream via `cmd.exe /c`, so keep 'args' free of cmd
 #     metacharacters (& | > < ^). Darvoza never builds a command line itself. See docs/adr/ADR-0004.
 #   - Whoever can edit this file can already allow every tool to a role of their choosing, so naming

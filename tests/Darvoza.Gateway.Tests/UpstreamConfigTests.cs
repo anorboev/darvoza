@@ -281,6 +281,28 @@ public class UpstreamConfigTests
         Assert.Equal("token-value", child["MY_SERVER_TOKEN"]);
     }
 
+    [Theory]
+    [InlineData("DARVOZA_KEY_ANALYST")]
+    [InlineData("DARVOZA_KEY_ANYTHING")]
+    [InlineData("DARVOZA_FINGERPRINT_SALT")]
+    [InlineData("PERSONAL_ACCESS_TOKEN")]
+    [InlineData("AZURE_DEVOPS_EXT_PAT")]
+    public void PassEnv_refuses_to_forward_darvozas_own_secrets(string name)
+    {
+        // @security-reviewer LOW on PR #14: without this, passEnv is a hand-rolled way to undo the very
+        // isolation it exists alongside — forwarding a caller key would let the upstream authenticate
+        // back into the front leg as that role. The trust model says a config-file writer could do this
+        // deliberately anyway, but the residual case ADR-0004 concedes (config writable by someone who
+        // cannot write the binaries) is exactly where it would matter, and nothing legitimate needs it.
+        var ex = Assert.Throws<InvalidOperationException>(() => Parse($"""
+            upstream:
+              command: some-third-party-server
+              passEnv: [{name}]
+            """));
+
+        Assert.Contains(name, ex.Message);
+    }
+
     [Fact]
     public void An_unset_passEnv_variable_fails_fast_rather_than_launching_half_configured()
     {

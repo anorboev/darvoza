@@ -112,6 +112,13 @@ default environment (`PATH`, `HOME`, system directories) plus exactly the variab
 `upstream.passEnv`. As with a caller's `keyEnv`, the config file carries variable **names**, never values,
 and an unset one fails startup rather than launching half-configured.
 
+`passEnv` is also **denylisted against Darvoza's own secrets** (`UpstreamOptions.IsDarvozaSecretVariable`):
+naming `DARVOZA_KEY_*`, `DARVOZA_FINGERPRINT_SALT`, `PERSONAL_ACCESS_TOKEN` or `AZURE_DEVOPS_EXT_PAT`
+fails startup. Without it, `passEnv: [DARVOZA_KEY_ANALYST]` would hand an upstream a caller key and let it
+act as that role — an operator-facing hole straight through the isolation sitting beside it. The match is
+case-insensitive; unrelated `DARVOZA_*` variables (`DARVOZA_POLICY_PATH`, `DARVOZA_AUDIT_PATH`) are not
+blocked.
+
 The built-in `azure-devops` profile still inherits, unchanged from before A01-T7 — it is the pinned,
 trusted package, and that is how the PAT reaches it. **Known consequence, pre-existing and not fixed
 here:** the official Azure DevOps server therefore also sees the caller keys and the fingerprint salt.
@@ -145,10 +152,80 @@ applying its own caret-escaping (`EscapeArgumentString`, pattern `[&^><|]`) to e
 - The gateway logs this at startup rather than leaving it implicit, and the guidance for
   `upstream.args` is to avoid cmd.exe metacharacters.
 
+**Independently corroborated**, so this does not rest on our decompilation alone:
+
+- [`modelcontextprotocol/csharp-sdk#1601`](https://github.com/modelcontextprotocol/csharp-sdk/issues/1601)
+  (open, labelled `bug` / `P2`) quotes the same branch from `main` verbatim, filed by an unrelated
+  reporter hitting it as a spaces-in-path launch failure.
+- [`#594`](https://github.com/modelcontextprotocol/csharp-sdk/issues/594) (closed, 2025) is the same
+  wrapping surfacing as an `&`-in-argument failure.
+- The pinned `ModelContextProtocol.Core` 1.4.0 assembly contains **exactly one** `cmd.exe` string
+  literal, consistent with the single assignment above.
+
+Note what the two issues have in common: both report it as a *functional* bug — the server fails to launch
+— and neither raises the argument-handling consequence. We filed that gap upstream as
+[`csharp-sdk#1751`](https://github.com/modelcontextprotocol/csharp-sdk/issues/1751), asking for the
+behaviour to be documented on the public API surface: passing `Arguments` as a string array is the standard
+.NET signal for "no shell interpretation", and on Windows that conclusion is false. To be explicit about
+credit — **the wrapping is not our discovery**; #594 reported it in 2025. What we contributed is the
+consequence for callers reasoning about argument safety, and our own wrong conclusion as the worked example.
+
 This is a **pre-existing property of the pinned SDK, not something A01-T7 introduced** — but A01-T7 both
-restates the claim and adds operator-controlled argv to the path, so it is corrected here. **Whether this
-reopens G-10 #1 as a gate is a call for the project owner**, recorded on PR #14 rather than decided by
-the implementing agent.
+restates the claim and adds operator-controlled argv to the path, so it is corrected here.
+
+### Ruling on G-10 #1 — reopened at LOW, then re-closed (owner, 2026-07-27)
+
+PR #14 left one question unanswered: does the above reopen **G-10 #1** (upstream argument injection),
+closed in A01-T6a? The owner's ruling, recorded here rather than left to a merged PR thread:
+
+**G-10 #1 is REOPENED at LOW and RE-CLOSED on a corrected rationale.** Both halves matter.
+
+**Why it had to be reopened.** A01-T6a closed the gate on the finding that launching `node npx-cli.js`
+instead of `npx.cmd` removed the shell from the Windows launch path. **That finding was false** — the SDK
+re-wraps every Windows launch in `cmd.exe /c` regardless. Closing it and moving on would leave the repo's
+own record asserting a reason that does not hold, and *the closure rationale is what a future maintainer
+reasons from*: someone reading "the allowlist is defense-in-depth" is exactly the person who relaxes
+`AdoOrgPattern`. A finding closed on a false rationale is not reliably closed, whatever its severity.
+`@security-reviewer` reached this independently and recommended the reopen; it is adopted.
+
+**Why LOW and not higher.** No untrusted input reaches upstream argv on either path. On the configured
+path the command *and* its arguments come from the same operator-controlled config file — the trust
+boundary this ADR establishes. On the `azure-devops` profile the only environment-derived argv element
+is `ADO_ORG`, and its strict allowlist is precisely the guard for the re-parse. The exposure was
+**mis-described, not unguarded**.
+
+**Why it is re-closed in the same breath.** The conditions `@security-reviewer` named for re-closing are
+met, and are enforced by tests rather than by comments:
+
+- The `ADO_ORG` allowlist is pinned in `GatewayOptionsTests` against every cmd.exe metacharacter
+  (`& | > < ^ % " ( ) ;`) plus the POSIX set — relaxing `AdoOrgPattern` now fails a **test**, not a code
+  review. That is what moves "load-bearing" from a comment to an enforced property.
+
+  **With one known gap, stated rather than glossed** (`@security-reviewer`, 2026-07-27, issue
+  [#17](https://github.com/anorboev/darvoza/issues/17)): the pattern is anchored `^…$`, and in .NET `$`
+  matches before a *trailing newline* as well as at end-of-input. So `ADO_ORG="darvoza-demo\n"` passes
+  validation and reaches argv with a raw LF, which the SDK's `[&^><|]` escaper does not cover. **The
+  re-closure survives this** — the regex tolerates the newline only as the final character, so nothing
+  attacker-controlled can follow it; everything after it on the command line is Darvoza's own fixed
+  `--authentication pat`, making the worst case a mangled launch, not command execution. But it means the
+  claim above is *one character* short of complete, and this ADR says so rather than letting the stronger
+  version stand. Fix (`\A…\z` plus the newline test case) is tracked in #17, deliberately **not** made
+  inside this close-out.
+- Every input that reaches the shell on Windows is enumerated in the table below, `DARVOZA_NPX_CLI_JS`
+  included.
+- The retraction is stated wherever the old claim appeared: this ADR, the README security model, the code
+  comments, and the startup warning. No surviving instance (swept 2026-07-27).
+
+**What the ruling does not do.** It changes no code and blocks nothing — by design; the code was already
+correct and it was the reasoning that was wrong. Two items are tracked separately and are **not** covered
+by this re-closure: `A01-T7b-sdk-issue` (report the undocumented `cmd.exe /c` rewrite to the SDK
+maintainers) and `A01-T8-upstream-env` (the `azure-devops` profile still inheriting `DARVOZA_KEY_*` and
+`DARVOZA_FINGERPRINT_SALT` — see the known consequence stated above).
+
+**The counter-argument, stated fairly:** on Windows the mitigation is now a single narrow allowlist on one
+argument, which is close to the posture G-10 #1 was raised about in the first place. The reason that is
+accepted here is the test pin plus the narrowed input source, not the absence of a shell — the claim this
+ADR exists to retract.
 
 ### What A01-T7 does and does not change about that surface
 
@@ -164,6 +241,22 @@ What changed is only *who supplies* argv, and it moved from partly environment-d
 operator config file — a **narrower** input source than before, not a wider one. Since both the command
 and its arguments now come from the same trusted file, no untrusted input reaches the cmd.exe re-parse on
 the configured-upstream path.
+
+**Every input that reaches the shell on Windows**, so the list is auditable rather than implied:
+
+| Input | Source | Guard |
+|---|---|---|
+| `ADO_ORG` | environment | Strict allowlist `^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$` — **load-bearing on Windows**, pinned by metacharacter cases in `GatewayOptionsTests` |
+| `upstream.command` / `upstream.args` | config file | Trust boundary (this ADR); array-only, never split or joined |
+| `DARVOZA_NPX_CLI_JS` | environment | Existence check only. Not an escalation — anyone who can set it can already set `PATH` and thus own the `node` binary — but it *is* an environment-derived argv element, listed here for completeness |
+| The pinned package spec | source constant | Not operator-influenced |
+
+### The isolation's real bound
+
+The child runs as the **same user**, so a hostile upstream can read the parent's environment directly
+(`/proc/<ppid>/environ`, `PROCESS_VM_READ`) regardless of what it was launched with. Not passing the
+caller keys defeats accidental exposure and an upstream that merely reads its own `getenv`; it is **not a
+sandbox**. Genuinely untrusted servers belong under a separate user or in a container.
 
 ### Known properties an operator should know
 
